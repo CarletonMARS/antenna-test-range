@@ -6,6 +6,8 @@ class SerialController:
     def __init__(self, port, baud):
         self.conn = serial.Serial(port, baud, timeout=2)
         time.sleep(0.5)
+    def save0(self):
+        self.conn.write("G10 L20 P1 X0 Y0 A0\n".encode('utf-8'))
 
     def query_position(self):
         """
@@ -69,3 +71,5 @@ class SerialController:
 
     def close(self):
         self.conn.close()
+
+

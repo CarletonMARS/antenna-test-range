@@ -15,60 +15,59 @@ class MainApp(ctk.CTk):
         super().__init__()
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
-        self.title("ANTENNA TEST RANGE CONTROLLER ---- DEPARTMENT OF ELECTRONICS")
-        self.attributes('-fullscreen', True)
+        self.title("ANTENNA TEST RANGE CONTROLLER ---- MARS")
+        self.geometry("1000x700")
+        self.resizable(True, True)
 
-        # BANNER IMAGE
-        image_path = "images/Carleton_Logo.png"
-        image = Image.open(image_path)
-        self.ctk_image = ctk.CTkImage(light_image=image, size=(300, 200))
-        self.banner = ctk.CTkLabel(self, image=self.ctk_image, text="")
-        self.banner.grid(row=0, column=2, padx=10, pady=10)
-
-        # Controllers to be initialized
+        # Controllers
         self.vna_ctrl = None
         self.serial_ctrl = None
 
-        # Connect Buttons
-        self.btn_connect_serial = ctk.CTkButton(self, text="Connect Positioner", command=self.connect_serial)
-        self.btn_connect_serial.grid(row=1, column=0, padx=20, pady=10)
+        # ----------- Centered Frame ------------
+        self.main_frame = ctk.CTkFrame(self)
+        self.main_frame.pack(expand=True, anchor="center")  # Centered layout
 
-        self.btn_connect_vna = ctk.CTkButton(self, text="Connect VNA", command=self.vna_connect)
-        self.btn_connect_vna.grid(row=1, column=1, padx=20, pady=10)
+        # BANNER IMAGE (centered across 2 columns)
+        image_path = "images/Carleton_Logo.png"
+        image = Image.open(image_path)
+        self.ctk_image = ctk.CTkImage(light_image=image, size=(300, 200))
+        self.banner = ctk.CTkLabel(self.main_frame, image=self.ctk_image, text="")
+        self.banner.grid(row=0, column=0, columnspan=2, pady=10)
 
-        # POSITIONER MANUAL CONTROL
+        # Connect buttons
+        self.btn_connect_serial = ctk.CTkButton(self.main_frame, text="Connect Positioner", command=self.connect_serial)
+        self.btn_connect_serial.grid(row=1, column=0, padx=20, pady=5)
+
+        self.btn_connect_vna = ctk.CTkButton(self.main_frame, text="Connect VNA", command=self.vna_connect)
+        self.btn_connect_vna.grid(row=1, column=1, padx=20, pady=5)
+
+        # Manual/VNA control
         self.btn_manual_control = ctk.CTkButton(
-            self,
-            text="MANUAL POSITIONER CONTROL",
-            command=self.open_manual_control,
-            state="disabled"
+            self.main_frame, text="MANUAL POSITIONER CONTROL",
+            command=self.open_manual_control, state="disabled"
         )
-        self.btn_manual_control.grid(row=2, column=0, padx=20, pady=10)
+        self.btn_manual_control.grid(row=2, column=0, padx=20, pady=5)
 
-        # VNA SOFT FRONT PANEL
         self.btn_vna_control = ctk.CTkButton(
-            self,
-            text="VNA SOFT PANEL",
-            command=self.open_vna_panel,
-            state="disabled"
+            self.main_frame, text="VNA SOFT PANEL",
+            command=self.open_vna_panel, state="disabled"
         )
-        self.btn_vna_control.grid(row=2, column=1, padx=20, pady=10)
+        self.btn_vna_control.grid(row=2, column=1, padx=20, pady=5)
 
-        # 3d spherical pattern generation
+        # Pattern Wizard (spans both columns)
         self.btn_pattern_wizard = ctk.CTkButton(
-            self,
-            text="3D SPHERICAL PATTERN",
-            command=self.open_pattern_wizard,
-            state="disabled"
+            self.main_frame, text="3D SPHERICAL PATTERN",
+            command=self.open_pattern_wizard, state="disabled"
         )
         self.btn_pattern_wizard.grid(row=3, column=0, columnspan=2, padx=20, pady=10)
-        # status label
-        self.status = ctk.CTkLabel(self, text="Not Connected")
-        self.status.grid(row=4, column=0, columnspan=2, pady=20)
 
-        # close button
-        self.btn_close = ctk.CTkButton(self, text="CLOSE", command=self.close)
-        self.btn_close.grid(row=5, column=0, columnspan=2, pady=20)
+        # Status label
+        self.status = ctk.CTkLabel(self.main_frame, text="Not Connected")
+        self.status.grid(row=4, column=0, columnspan=2, pady=10)
+
+        # Close button
+        self.btn_close = ctk.CTkButton(self.main_frame, text="CLOSE", command=self.close)
+        self.btn_close.grid(row=5, column=0, columnspan=2, pady=15)
 
     def open_vna_panel(self):
         VNAFrontPanel(self, self.vna_ctrl)
@@ -94,7 +93,11 @@ class MainApp(ctk.CTk):
     def connect_serial(self):
         try:
             self.serial_ctrl = SerialController(settings.COM_PORT, settings.BAUD_RATE)
-            self.serial_ctrl.query_position()
+            self.serial_ctrl.home_xya()
+            self.serial_ctrl.wait_for_idle(30)
+
+            self.serial_ctrl.move_to(0,0)
+            self.serial_ctrl.wait_for_idle(30)
             self.btn_connect_serial.configure(text="Positioner Connected", state="disabled")
             self.status.configure(text="Positioner Connected")
             self.btn_manual_control.configure(state="normal")

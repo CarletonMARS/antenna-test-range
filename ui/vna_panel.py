@@ -14,9 +14,9 @@ class VNAFrontPanel(ctk.CTkToplevel):
 
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
-        self.geometry("3440x1440")
-        self.attributes("-fullscreen", True)
         self.attributes("-topmost", True)
+        self.geometry("1000x700")
+        self.resizable(True, True)
         self.title("AGILENT 8722ES SOFT FRONT PANEL")
 
         # Measurement Selection
@@ -43,6 +43,8 @@ class VNAFrontPanel(ctk.CTkToplevel):
         # Close button
         self.close_btn = ctk.CTkButton(self, text="close", command=self.on_close)
         self.close_btn.grid(row=4, column=0, padx=10, pady=10)
+        self.update_idletasks()
+        self.geometry(f"{self.winfo_reqwidth() + 100}x{self.winfo_reqheight() + 100}")
 
     def select_sparam(self, sparam: str):
         self.vna_ctrl.select_sparam(sparam)

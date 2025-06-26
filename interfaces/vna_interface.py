@@ -34,21 +34,15 @@ class VNAController:
         self.write(sparam)
 
     def read_trace(self, channel: str = "CHAN1") -> (np.ndarray, np.ndarray):
-        """Returns (freq_GHz, mag_dB) arrays
-            Defaults Channel 1 Readings,
-            Assumes OUTPLIML, FORM5, OUTPFORM
-        """
-
-        # frequency axis
-        self.write("OUTPLIML")
-        raw = self.VNA.read().splitlines()
-        freqs = np.array([float(line.split(',')[0]) for line in raw if line])
-
-        self.write("FORM5;")
+        self.write("FORM5")
         self.write(f"{channel};")
+        self.write("OUTPFORM;")
+        vals = self.VNA.query_binary_values("", container=list, header_fmt="hp")
 
-        vals = self.VNA.query_binary_values("OUTPFORM;", container=list, header_fmt="hp")
-
+        f_start = float(self.query("STAR?"))
+        f_stop = float(self.query("STOP?"))
+        num_points = int(float(self.query("POIN?")))
+        freqs = np.linspace(f_start, f_stop, num_points)
         mags = np.array(vals[0::2])
         return freqs / 1e9, mags
 

@@ -9,19 +9,18 @@ class ManualControlWindow(ctk.CTkToplevel):
         self.connected = False
         super().__init__(parent)
         self.ctrl = serial_ctrl
-        self.attributes("-fullscreen", True)
+        self.resizable(True, True)
         self.attributes("-topmost", True)
         self.lift()
         self.after(10, lambda: self.focus_force())
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
-        self.geometry("3440x1440")
         self.title("POSITIONER MANUAL CONTROL")
 
         # BANNER IMAGE
         image_path = "images/DUO5.png"
         image = Image.open(image_path)
-        self.ctk_image = ctk.CTkImage(light_image=image, size=(200, 200))
+        self.ctk_image = ctk.CTkImage(light_image=image, size=(200,200))
         self.label = ctk.CTkLabel(self, image=self.ctk_image, text="")
         self.label.grid(row=0, column=4, padx=10, pady=10)
         # X -10
@@ -108,15 +107,21 @@ class ManualControlWindow(ctk.CTkToplevel):
 
         # Goto 000
         self.goto0_button = ctk.CTkButton(self, text="GOTO 0,0,0", command=self.goto0)
-        self.goto0_button.grid(row=4, column=7, pady=10, padx=10)
+        self.goto0_button.grid(row=4, column=7, pady=1, padx=10)
+
+        # Save 000
+        self.goto0_button = ctk.CTkButton(self, text="SAVE 0,0,0", command=self.save0)
+        self.goto0_button.grid(row=5, column=7, pady=1, padx=10)
 
         # Close
         self.close_button = ctk.CTkButton(self, text='CLOSE', command=self.close)
         self.close_button.grid(row=6, column=4, padx=1, pady=1)
 
         # TEXTBOX
-        self.textbox = ctk.CTkTextbox(self, height=100, width=1500, wrap="word")
+        self.textbox = ctk.CTkTextbox(self, height=100, width=600, wrap="word")
         self.textbox.grid(row=5, column=4, padx=10, pady=10)
+        self.update_idletasks()  # Calculate layout
+        self.geometry(f"{self.winfo_reqwidth()+100}x{self.winfo_reqheight()+100}")
 
     def connect_to_controller(self):
         try:
@@ -132,7 +137,7 @@ class ManualControlWindow(ctk.CTkToplevel):
         self.textbox.insert("end", text)  # Insert new text
 
     def xminus10(self):
-        self.move_and_refresh(-10, 0)
+        self.move_and_refresh(0, 0, 10, 10)
 
     def xminus1(self):
         self.move_and_refresh(-1, 0)
@@ -195,6 +200,10 @@ class ManualControlWindow(ctk.CTkToplevel):
         self.ctrl.home_xya()
         self.refresh(45)
 
+    def save0(self):
+        self.ctrl.save0()
+        self.refresh()
+
     def goto0(self):
         self.zero_and_refresh()
 
@@ -213,14 +222,16 @@ class ManualControlWindow(ctk.CTkToplevel):
             self.ctrl.wait_for_idle(timeout)
         except RuntimeError as e:
             return self.update_textbox(f"Move timeout: {e}")
-        x1, y1, *_ = self.ctrl.query_position()
-        self.update_textbox(f"Current Position: X{x1} Y{y1} A0")
+        x1, y1, z1, a1, *_ = self.ctrl.query_position()
+        self.update_textbox(f"Current Position: X{x1} Y{y1} Z{z1} A{a1}")
 
-    def move_and_refresh(self, dx, dy):
-        x0, y0, *_ = self.ctrl.query_position()
+    def move_and_refresh(self, dx, dy, dz=0, da=0):
+        x0, y0, z0, a0, *_ = self.ctrl.query_position()
         target_x = x0 + dx
         target_y = y0 + dy
-        self.ctrl.move_to(target_x, target_y)
+        target_z = z0 + dz
+        target_a = a0 + da
+        self.ctrl.move_to(target_x, target_y, target_z, target_a)
         self.refresh()
 
     def zero_and_refresh(self):
