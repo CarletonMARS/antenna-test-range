@@ -6,6 +6,7 @@ import settings
 from ui.manual_control import ManualControlWindow
 from ui.pattern_wizard import PatternWizard
 from ui.vna_panel import VNAFrontPanel
+from ui.data_analyzer import DataAnalysisWindow
 from interfaces.vna_interface import VNAController
 from interfaces.serial_interface import SerialController
 
@@ -61,13 +62,21 @@ class MainApp(ctk.CTk):
         )
         self.btn_pattern_wizard.grid(row=3, column=0, columnspan=2, padx=20, pady=10)
 
+        # Pattern Wizard (spans both columns)
+        self.btn_data_analyzer = ctk.CTkButton(
+            self.main_frame, text="Data Analyzer",
+            command=self.open_data_analyzer, state="enabled"
+        )
+        self.btn_data_analyzer.grid(row=4, column=0, columnspan=2, padx=20, pady=10)
+
+
         # Status label
         self.status = ctk.CTkLabel(self.main_frame, text="Not Connected")
-        self.status.grid(row=4, column=0, columnspan=2, pady=10)
+        self.status.grid(row=5, column=0, columnspan=2, pady=10)
 
         # Close button
         self.btn_close = ctk.CTkButton(self.main_frame, text="CLOSE", command=self.close)
-        self.btn_close.grid(row=5, column=0, columnspan=2, pady=15)
+        self.btn_close.grid(row=6, column=0, columnspan=2, pady=15)
 
     def open_vna_panel(self):
         VNAFrontPanel(self, self.vna_ctrl)
@@ -77,6 +86,9 @@ class MainApp(ctk.CTk):
 
     def open_pattern_wizard(self):
         PatternWizard(self, self.vna_ctrl, self.serial_ctrl)
+
+    def open_data_analyzer(self):
+        DataAnalysisWindow(self)
 
     def vna_connect(self):
         try:
