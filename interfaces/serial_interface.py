@@ -35,7 +35,7 @@ class SerialController:
 
         raise RuntimeError(f"No position data in response: {raw}")
 
-    def move_to(self, x, y, z=0, a=0, ):
+    def move_to(self, x, y, z=0, a=0 ):
         cmd = f"G0 X{x} Y{y} Z{z} A{a}\n"
         self.conn.write(cmd.encode('utf-8'))
 

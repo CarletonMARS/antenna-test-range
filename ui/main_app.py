@@ -65,7 +65,7 @@ class MainApp(ctk.CTk):
         # Pattern Wizard (spans both columns)
         self.btn_data_analyzer = ctk.CTkButton(
             self.main_frame, text="Data Analyzer",
-            command=self.open_data_analyzer, state="enabled"
+            command=self.open_data_analyzer
         )
         self.btn_data_analyzer.grid(row=4, column=0, columnspan=2, padx=20, pady=10)
 

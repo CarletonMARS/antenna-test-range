@@ -4,7 +4,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.figure import Figure
 import numpy as np
 import pandas as pd
-
+import ui.session
+import os
 
 class DataAnalysisWindow(ctk.CTkToplevel):
     def __init__(self, parent):
@@ -37,6 +38,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         self.freq_list = []
         self.freq_var = ctk.StringVar(value="")
         self.normalize_var = ctk.BooleanVar(value=False)
+        self.last_plot_mode = None  # can be '2d' or '3d'
 
         # Variables for slice selection, set dynamically when needed
         self.slice_type_var = ctk.StringVar(value="phi")
@@ -46,7 +48,8 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         self.chk_normalize = ctk.CTkCheckBox(
             self.button_frame,
             text="Normalize to 0 dB",
-            variable=self.normalize_var
+            variable=self.normalize_var,
+            command=self.refresh_current_plot
         )
         self.chk_normalize.pack(pady=5)
 
@@ -59,16 +62,11 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         self.freq_dropdown.pack(pady=5, fill='x')
 
         self.btn_load_csv = ctk.CTkButton(self.button_frame, text="Load CSV", command=self.load_csv)
-        self.btn_load_csv.pack(pady=5, fill='x')
-
         self.btn_load_last = ctk.CTkButton(self.button_frame, text="Load Last Test", command=self.load_last_csv)
-        self.btn_load_last.pack(pady=5, fill='x')
-
         self.btn_plot_slice = ctk.CTkButton(self.button_frame, text="Plot 2D Slice", command=self.plot_2d_slice)
-        self.btn_plot_slice.pack(pady=5, fill='x')
-
         self.btn_plot_3d = ctk.CTkButton(self.button_frame, text="Plot 3D Spherical", command=self.plot_3d_spherical)
-        self.btn_plot_3d.pack(pady=5, fill='x')
+
+        self.btn_load_csv.grid(row=0, column=0, padx=20, pady=5)
 
 
     def load_csv(self):
@@ -95,38 +93,30 @@ class DataAnalysisWindow(ctk.CTkToplevel):
 
     def load_last_csv(self):
         try:
-            with open("last_test.txt", "r") as f:
-                file_path = f.read().strip()
-            with open(file_path, 'r') as f_check:
-                first_line = f_check.readline()
-            header_present = 'Phi' in first_line
+            file_path = ui.session.last_test_csv
+            if not file_path or not os.path.exists(file_path):
+                print("No last test file found or path invalid.")
+                return
 
-            if header_present:
-                self.df = pd.read_csv(file_path, header=0, dtype=str)
-                self.df.rename(columns={
-                    'Phi (deg)': 'phi_deg',
-                    'Theta (deg)': 'theta_deg',
-                    'Frequency (GHz)': 'freq_ghz',
-                    'Magnitude (dB)': 'mag_db'
-                }, inplace=True)
-            else:
-                self.df = pd.read_csv(file_path, header=None, dtype=str)
-                self.df.columns = ['phi_deg', 'theta_deg', 'freq_ghz', 'mag_db']
+            self.df = pd.read_csv(file_path, header=0, dtype=str)
+            self.df.rename(columns={
+                'Phi (deg)': 'phi_deg',
+                'Theta (deg)': 'theta_deg',
+                'Frequency (GHz)': 'freq_ghz',
+                'Magnitude (dB)': 'mag_db'
+            }, inplace=True)
 
-            try:
-                self.df = self.df.astype({
-                    'phi_deg': float,
-                    'theta_deg': float,
-                    'freq_ghz': float,
-                    'mag_db': float
-                })
-                self.update_freq_options()
-                print(f"Loaded last test: {file_path}")
-            except Exception as e:
-                print("Error parsing numeric values in last test:", e)
+            self.df = self.df.astype({
+                'phi_deg': float,
+                'theta_deg': float,
+                'freq_ghz': float,
+                'mag_db': float
+            })
+
+            self.update_freq_options()
+            print(f"Loaded last test: {file_path}")
         except Exception as e:
             print("Failed to load last test file:", e)
-
     def update_freq_options(self):
         if self.df is None or 'freq_ghz' not in self.df.columns:
             return
@@ -182,7 +172,6 @@ class DataAnalysisWindow(ctk.CTkToplevel):
 
         unique_phi = sorted(slice_df['phi_deg'].unique())
         unique_theta = sorted(slice_df['theta_deg'].unique())
-
         # Show dialog if both phi and theta vary
         if len(unique_phi) > 1 and len(unique_theta) > 1:
             self.ask_slice_selection_dialog(unique_phi, unique_theta)
@@ -222,6 +211,8 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         label_value.pack(pady=(10, 2))
         entry_value = ctk.CTkEntry(dlg, textvariable=local_slice_value_var)
         entry_value.pack(pady=5, fill='x', padx=20)
+        dlg.update_idletasks()  # Calculate layout
+        dlg.geometry(f"{dlg.winfo_reqwidth()+100}x{dlg.winfo_reqheight()+100}")
 
         def on_slice_type_change(*args):
             if local_slice_type_var.get() == "phi":
@@ -274,6 +265,11 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             self.ax.legend()
             self.canvas.draw()
             self.show_plot()
+
+            self.last_plot_mode = '2d'
+
+            self.update_idletasks()  # Calculate layout
+            self.geometry(f"{self.winfo_reqwidth()+100}x{self.winfo_reqheight()+100}")
         except Exception as e:
             print("Error in 2D slice with selection:", e)
 
@@ -308,7 +304,17 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             cbar = self.figure.colorbar(sc, ax=ax, shrink=0.6, pad=0.1)
             cbar.set_label("Magnitude (dB)")
 
+            self.last_plot_mode = '3d'
+
             self.canvas.draw()
             self.show_plot()
         except Exception as e:
             print("Error in 3D spherical:", e)
+
+    def refresh_current_plot(self):
+        if self.last_plot_mode == '2d':
+            slice_df = self.get_freq_filtered_df()
+            if slice_df is not None:
+                self.plot_2d_slice_with_selection(slice_df)
+        elif self.last_plot_mode == '3d':
+            self.plot_3d_spherical()

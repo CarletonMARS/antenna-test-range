@@ -6,6 +6,7 @@ import customtkinter as ctk
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import ui.session
 
 
 class PatternWizard(ctk.CTkToplevel):
@@ -275,7 +276,7 @@ class PatternWizard(ctk.CTkToplevel):
             if not filename.endswith(".csv"):
                 filename += ".csv"
             self.csv_path = os.path.join("csv", filename)
-
+            ui.session.last_test_csv = self.csv_path
         except ValueError as e:
             self.label.configure(text=f"Invalid input: {e}")
             return
