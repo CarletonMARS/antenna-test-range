@@ -38,13 +38,12 @@ class PatternWizard(ctk.CTkToplevel):
         self.freq_start = None
         self.csv_path = None
 
-
         # for tracking pending after() callbacks
         self._after_ids = []
         self._orig_after = super().after
         self.after = self._schedule  # monkey-patch instance .after
 
-        #to plot in batches
+        # to plot in batches
         self._plot_buffer = []
         self._plot_counter = 0
 
@@ -77,12 +76,15 @@ class PatternWizard(ctk.CTkToplevel):
         self.xy_slice_btn = ctk.CTkButton(self, text="XY Slice (θ=90)", command=lambda: self.show_param_form("xy"))
         self.phi0_btn = ctk.CTkButton(self, text="Phi = 0 Slice", command=lambda: self.show_param_form("phi0"))
         self.phi90_btn = ctk.CTkButton(self, text="Phi = 90 Slice", command=lambda: self.show_param_form("phi90"))
+        self.custom_slice_btn = ctk.CTkButton(self, text="Custom 2D Slice",
+                                              command=lambda: self.show_param_form("custom"))
 
         for w in (
                 self.full_scan_btn,
                 self.xy_slice_btn,
                 self.phi0_btn,
-                self.phi90_btn
+                self.phi90_btn,
+                self.custom_slice_btn
         ):
             w.pack(pady=5)
 
@@ -93,7 +95,6 @@ class PatternWizard(ctk.CTkToplevel):
 
         self.update_idletasks()  # Calculate layout
         self.geometry(f"{self.winfo_reqwidth() + 100}x{self.winfo_reqheight() + 100}")
-
 
     def abort_scan(self):
         self.abort_flag.set()
@@ -138,6 +139,13 @@ class PatternWizard(ctk.CTkToplevel):
         elif mode == "phi90":  # phi = 90, sweep theta
             phi_range = [90]
             theta_range = np.arange(0, 360, self.theta_step)
+        elif mode == "custom":
+            if self.custom_fixed_axis == "phi":
+                phi_range = [self.custom_fixed_angle]
+                theta_range = np.arange(0, 360, self.custom_step_size)
+            else:
+                theta_range = [self.custom_fixed_angle]
+                phi_range = np.arange(0, 360, self.custom_step_size)
         else:
             self.safe_gui_update(self.label, text="Invalid scan mode.")
             return
@@ -172,10 +180,10 @@ class PatternWizard(ctk.CTkToplevel):
                     return self.safe_gui_update(self.label, text=f"VNA error: {e}")
 
         if not self.abort_flag.is_set():
-            self.serial.move_to(0,0)
+            self.serial.move_to(0, 0)
             self.safe_gui_update(self.label, text="Scan complete. Results saved.")
         else:
-            self.serial.move_to(0,0)
+            self.serial.move_to(0, 0)
             self.safe_gui_update(self.label, text="Scan aborted.")
 
         self.safe_gui_update(self.full_scan_btn, state="normal")
@@ -195,8 +203,6 @@ class PatternWizard(ctk.CTkToplevel):
         with open(filename, mode="a", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(row)
-
-
 
     def update_3d_plot(self, phi, theta, db_val):
         if not hasattr(self, 'ax') or not hasattr(self, 'canvas'):
@@ -238,7 +244,6 @@ class PatternWizard(ctk.CTkToplevel):
         if self.alive:
             self.after(0, upd)
 
-
     def freq_setup(self):
         num_points = int(self.freq_points)
         try:
@@ -265,6 +270,16 @@ class PatternWizard(ctk.CTkToplevel):
                 self.phi_step = float(self.entries["phi_step"].get())
                 if self.phi_step <= 0:
                     raise ValueError("Phi step must be > 0")
+            if mode == "custom":
+                fixed_axis = self.entries["fixed_axis"].get().strip().lower()
+                fixed_angle = float(self.entries["fixed_angle"].get())
+                step_size = float(self.entries["step_size"].get())
+                if fixed_axis not in ["phi", "theta"]:
+                    self.label.configure(text="Fixed axis must be 'phi' or 'theta'")
+                    return
+                self.custom_fixed_axis = fixed_axis
+                self.custom_fixed_angle = fixed_angle
+                self.custom_step_size = step_size
 
             # Frequency settings
             self.freq_start = float(self.entries["freq_start"].get())
@@ -333,6 +348,10 @@ class PatternWizard(ctk.CTkToplevel):
             fields.insert(0, ("Theta Step (°)", "theta_step"))
         if mode in ["full", "xy"]:
             fields.insert(0, ("Phi Step (°)", "phi_step"))
+        if mode == "custom":
+            fields.insert(0, ("Fixed Axis (phi/theta)", "fixed_axis"))
+            fields.insert(1, ("Fixed Angle (°)", "fixed_angle"))
+            fields.insert(2, ("Step Size", "step_size"))
 
         for label_text, key in fields:
             row = ctk.CTkFrame(self.param_frame)
@@ -395,4 +414,3 @@ class PatternWizard(ctk.CTkToplevel):
         self.canvas = FigureCanvasTkAgg(self.fig, master=self)
         self.canvas_widget = self.canvas.get_tk_widget()
         self.canvas_widget.pack(fill="both", expand=True)
-

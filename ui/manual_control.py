@@ -20,7 +20,7 @@ class ManualControlWindow(ctk.CTkToplevel):
         # BANNER IMAGE
         image_path = "images/DUO5.png"
         image = Image.open(image_path)
-        self.ctk_image = ctk.CTkImage(light_image=image, size=(200,200))
+        self.ctk_image = ctk.CTkImage(light_image=image, size=(200, 200))
         self.label = ctk.CTkLabel(self, image=self.ctk_image, text="")
         self.label.grid(row=0, column=4, padx=10, pady=10)
         # X -10
@@ -121,7 +121,7 @@ class ManualControlWindow(ctk.CTkToplevel):
         self.textbox = ctk.CTkTextbox(self, height=100, width=600, wrap="word")
         self.textbox.grid(row=5, column=4, padx=10, pady=10)
         self.update_idletasks()  # Calculate layout
-        self.geometry(f"{self.winfo_reqwidth()+100}x{self.winfo_reqheight()+100}")
+        self.geometry(f"{self.winfo_reqwidth() + 100}x{self.winfo_reqheight() + 100}")
 
     def connect_to_controller(self):
         try:
@@ -137,7 +137,7 @@ class ManualControlWindow(ctk.CTkToplevel):
         self.textbox.insert("end", text)  # Insert new text
 
     def xminus10(self):
-        self.move_and_refresh(0, 0, 10, 10)
+        self.move_and_refresh(-10, 0)
 
     def xminus1(self):
         self.move_and_refresh(-1, 0)

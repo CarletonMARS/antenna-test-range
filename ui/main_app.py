@@ -57,7 +57,7 @@ class MainApp(ctk.CTk):
 
         # Pattern Wizard (spans both columns)
         self.btn_pattern_wizard = ctk.CTkButton(
-            self.main_frame, text="3D SPHERICAL PATTERN",
+            self.main_frame, text="Run Test",
             command=self.open_pattern_wizard, state="disabled"
         )
         self.btn_pattern_wizard.grid(row=3, column=0, columnspan=2, padx=20, pady=10)
@@ -68,7 +68,6 @@ class MainApp(ctk.CTk):
             command=self.open_data_analyzer
         )
         self.btn_data_analyzer.grid(row=4, column=0, columnspan=2, padx=20, pady=10)
-
 
         # Status label
         self.status = ctk.CTkLabel(self.main_frame, text="Not Connected")
@@ -107,8 +106,7 @@ class MainApp(ctk.CTk):
             self.serial_ctrl = SerialController(settings.COM_PORT, settings.BAUD_RATE)
             self.serial_ctrl.home_xya()
             self.serial_ctrl.wait_for_idle(30)
-
-            self.serial_ctrl.move_to(0,0)
+            self.serial_ctrl.move_to(0, 0)
             self.serial_ctrl.wait_for_idle(30)
             self.btn_connect_serial.configure(text="Positioner Connected", state="disabled")
             self.status.configure(text="Positioner Connected")
