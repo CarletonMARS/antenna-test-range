@@ -5,7 +5,25 @@ import settings
 
 
 class ManualControlWindow(ctk.CTkToplevel):
+    """
+    A manual control GUI for interacting with a serial-connected positioner.
+
+    Features:
+    - Allows precise X/Y movement in various step sizes (±10, ±1, ±0.1, ±0.02)
+    - Individual axis homing (X, Y, A) and combined homing
+    - Save and go to (0,0,0) origin functionality
+    - Displays live position feedback in a textbox
+    - Shows a branded banner image
+    - Wraps a `SerialController` interface to send movement and query commands
+    """
     def __init__(self, parent, serial_ctrl: SerialController):
+        """
+        Initializes the manual control window with positioner controls and layout.
+
+        Args:
+            parent: The parent tkinter window or root.
+            serial_ctrl (SerialController): Controller interface to the stepper system.
+        """
         self.connected = False
         super().__init__(parent)
         self.ctrl = serial_ctrl
@@ -114,7 +132,7 @@ class ManualControlWindow(ctk.CTkToplevel):
         self.goto0_button.grid(row=5, column=7, pady=1, padx=10)
 
         # Close
-        self.close_button = ctk.CTkButton(self, text='CLOSE', command=self.close)
+        self.close_button = ctk.CTkButton(self, text='CLOSE', command=self.handle_close)
         self.close_button.grid(row=6, column=4, padx=1, pady=1)
 
         # TEXTBOX
@@ -124,6 +142,11 @@ class ManualControlWindow(ctk.CTkToplevel):
         self.geometry(f"{self.winfo_reqwidth() + 100}x{self.winfo_reqheight() + 100}")
 
     def connect_to_controller(self):
+        """
+        Attempts to query and display the current position from the controller.
+
+        Sets `self.connected` to True if successful.
+        """
         try:
             x, y, z, a, b, c = self.ctrl.query_position()
             self.update_textbox(f"Connected. Position at connection time is X{x} Y{y} A{a}\n")
@@ -132,7 +155,12 @@ class ManualControlWindow(ctk.CTkToplevel):
             self.update_textbox(f"Failed to connect: {e}")
 
     def update_textbox(self, text):
-        """Updates the textbox with new text."""
+        """
+        Updates the textbox area with provided status text.
+
+        Args:
+            text (str): Text to display.
+        """
         self.textbox.delete("1.0", "end")  # Clear previous text
         self.textbox.insert("end", text)  # Insert new text
 
@@ -185,30 +213,41 @@ class ManualControlWindow(ctk.CTkToplevel):
         self.move_and_refresh(0, 10)
 
     def homex(self):
+        """Homes the X-axis and refreshes the position display."""
         self.ctrl.home_x()
         self.refresh(45)
 
     def homey(self):
+        """Homes the Y-axis and refreshes the position display."""
         self.ctrl.home_y()
         self.refresh(45)
 
     def homea(self):
+        """Homes the A-axis and refreshes the position display."""
         self.ctrl.home_a()
         self.refresh(45)
 
     def home(self):
+        """Homes all (X, Y, A) axes and refreshes the position display."""
         self.ctrl.home_xya()
         self.refresh(45)
 
     def save0(self):
+        """Saves the current position as the (0,0,0) origin."""
         self.ctrl.save0()
         self.refresh()
 
     def goto0(self):
+        """Moves to the saved (0,0,0) origin and refreshes the display."""
         self.zero_and_refresh()
 
     def get_position(self):
+        """
+        Queries the current position from the controller.
 
+        Returns:
+            tuple: (x, y, z, a) or (None, None, None, None) if query fails.
+        """
         try:
             x, y, z, a, *_ = self.ctrl.query_position()
             self.update_textbox(f"Current Position: X{x} Y{y} A{a}")
@@ -218,6 +257,12 @@ class ManualControlWindow(ctk.CTkToplevel):
             return None, None, None, None
 
     def refresh(self, timeout=10):
+        """
+        Waits for the controller to become idle, then updates position display.
+
+        Args:
+            timeout (int): Time in seconds to wait before timing out, default 10s.
+        """
         try:
             self.ctrl.wait_for_idle(timeout)
         except RuntimeError as e:
@@ -226,6 +271,15 @@ class ManualControlWindow(ctk.CTkToplevel):
         self.update_textbox(f"Current Position: X{x1} Y{y1} Z{z1} A{a1}")
 
     def move_and_refresh(self, dx, dy, dz=0, da=0):
+        """
+        Moves by a relative offset and refreshes the display.
+
+        Args:
+            dx (float): Delta X.
+            dy (float): Delta Y.
+            dz (float): Delta Z (default 0).
+            da (float): Delta A (default 0).
+        """
         x0, y0, z0, a0, *_ = self.ctrl.query_position()
         target_x = x0 + dx
         target_y = y0 + dy
@@ -235,10 +289,12 @@ class ManualControlWindow(ctk.CTkToplevel):
         self.refresh()
 
     def zero_and_refresh(self):
-
+        """Moves to the origin (0,0) and refreshes the position display."""
         self.ctrl.move_to(0, 0)
         self.refresh()
 
-    def close(self):
-
-        self.destroy()
+    def handle_close(self):
+        try:
+            self.destroy()
+        except Exception:
+            pass

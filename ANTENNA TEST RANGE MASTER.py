@@ -273,7 +273,7 @@ class manual_control_App(ctk.CTkToplevel):
 
 
     def close(self):
-        self.ctrl.close()
+        self.ctrl.handle_close()
         self.destroy()
 
 class SFP(ctk.CTkToplevel):

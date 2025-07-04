@@ -54,7 +54,18 @@ class PatternWizard(ctk.CTkToplevel):
         self.protocol("WM_DELETE_WINDOW", self.handle_close)
 
     def _schedule(self, delay_ms, callback=None, *args):
-        """Wraps after(): only schedules if widget still exists, records IDs."""
+        """
+        Custom wrapper for `after()` that safely schedules GUI callbacks only if the widget exists.
+        Also tracks scheduled IDs for cleanup on exit.
+
+        Args:
+            delay_ms (int): Delay in milliseconds.
+            callback (function, optional): Function to call after delay.
+            *args: Arguments to pass to the callback.
+
+        Returns:
+            ID of the scheduled `after()` callback or None if widget doesn't exist.
+        """
         if not self.winfo_exists():
             return None
         if callback:
@@ -65,6 +76,10 @@ class PatternWizard(ctk.CTkToplevel):
         return aid
 
     def create_widgets(self):
+        """
+        Initializes the UI controls shown on the main scan mode selection screen.
+        Includes scan type buttons, abort and close options.
+        """
         # Instruction label
         self.label = ctk.CTkLabel(self, text="Select scan type to begin")
         self.label.pack(pady=5)
@@ -97,12 +112,23 @@ class PatternWizard(ctk.CTkToplevel):
         self.geometry(f"{self.winfo_reqwidth() + 100}x{self.winfo_reqheight() + 100}")
 
     def abort_scan(self):
+        """
+        Signals the scan loop to abort as soon as possible.
+        Updates the label and disables the Abort button.
+        """
         self.abort_flag.set()
         self.label.configure(text="Abort requested...")
         self.safe_gui_update(self.abort_btn, state="disabled")
 
     def handle_close(self):
-        # 1) signal scan to stop
+        """
+        Closes the wizard window:
+        - Sets abort flags
+        - Cancels all scheduled `after()` callbacks
+        - Waits for scan thread if running
+        - Destroys the window
+        """
+        # 1) signal scan thread to stop
         self.alive = False
         self.abort_flag.set()
         self.safe_gui_update(self.abort_btn, state="disabled")
@@ -125,8 +151,13 @@ class PatternWizard(ctk.CTkToplevel):
             pass
 
     def run_scan(self, mode="full"):
-        self.serial.move_to(0, 0)
+        """
+        Executes the selected scan in a background thread.
 
+        Args:
+            mode (str): Type of scan to perform -> "full", "xy", "phi0", "phi90", or "custom".
+        """
+        self.serial.move_to(0, 0)
         if mode == "full":
             theta_range = np.arange(0, 181, self.theta_step)
             phi_range = np.arange(0, 360, self.phi_step)
@@ -186,25 +217,45 @@ class PatternWizard(ctk.CTkToplevel):
             self.serial.move_to(0, 0)
             self.safe_gui_update(self.label, text="Scan aborted.")
 
-        self.safe_gui_update(self.full_scan_btn, state="normal")
-        self.safe_gui_update(self.xy_slice_btn, state="normal")
-        self.safe_gui_update(self.phi0_btn, state="normal")
-        self.safe_gui_update(self.phi90_btn, state="normal")
+        self.safe_gui_update(self.back_btn, state="normal")
+        self.safe_gui_update(self.start_btn, state="normal")
+        self.safe_gui_update(self.abort_btn, state="disabled")
+
 
     def init_csv(self, filename):
-        """Create CSV with header if not already present."""
+        """
+        Creates a new CSV file with column headers if it doesn't already exist.
+
+        Args:
+            filename (str): Path to the CSV file to create.
+        """
+        #TODO: More information in header, then if file already exists need to simply append next scan to bottom of previous scan
         if not os.path.exists(filename):
             with open(filename, mode="w", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow(["Phi (deg)", "Theta (deg)", "Frequency (GHz)", "Magnitude (dB)"])
 
     def append_csv_row(self, filename, row):
-        """Append one row of data to the CSV."""
+        """
+        Appends a single row of scan data to the CSV file.
+
+        Args:
+            filename (str): CSV file path.
+            row (tuple): A tuple of (phi, theta, frequency, magnitude).
+        """
         with open(filename, mode="a", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(row)
 
     def update_3d_plot(self, phi, theta, db_val):
+        """
+        Buffers and periodically renders 3D scatter plot points during a live scan.
+
+        Args:
+            phi (float): Phi angle in degrees.
+            theta (float): Theta angle in degrees.
+            db_val (float): Magnitude in dB.
+        """
         if not hasattr(self, 'ax') or not hasattr(self, 'canvas'):
             return  # Don't plot if not set up
         r = 10 ** (db_val / 20)
@@ -234,6 +285,13 @@ class PatternWizard(ctk.CTkToplevel):
             self.after(0, draw)
 
     def safe_gui_update(self, widget, **kwargs):
+        """
+        Safely updates a widget’s attributes from any thread by using `after()`.
+
+        Args:
+            widget (tk.Widget): The widget to update.
+            **kwargs: Configuration options to apply.
+        """
         def upd():
             if not self.winfo_exists(): return
             try:
@@ -245,6 +303,10 @@ class PatternWizard(ctk.CTkToplevel):
             self.after(0, upd)
 
     def freq_setup(self):
+        """
+        Configures the VNA with user-specified frequency sweep settings.
+        Raises RuntimeError if communication fails.
+        """
         num_points = int(self.freq_points)
         try:
             self.vna.write("ABORT 7")
@@ -260,6 +322,12 @@ class PatternWizard(ctk.CTkToplevel):
             raise RuntimeError(f"VNA config error: {e}")
 
     def start_scan(self, mode):
+        """
+        Parses UI entries, validates inputs, configures the VNA, and starts the scan thread.
+
+        Args:
+            mode (str): Selected scan type ("full", "xy", "phi0", "phi90", "custom").
+        """
         try:
             # Validate step entries by mode
             if "theta_step" in self.entries:
@@ -271,7 +339,7 @@ class PatternWizard(ctk.CTkToplevel):
                 if self.phi_step <= 0:
                     raise ValueError("Phi step must be > 0")
             if mode == "custom":
-                fixed_axis = self.entries["fixed_axis"].get().strip().lower()
+                fixed_axis = self.entries["fixed_axis"].get()
                 fixed_angle = float(self.entries["fixed_angle"].get())
                 step_size = float(self.entries["step_size"].get())
                 if fixed_axis not in ["phi", "theta"]:
@@ -304,21 +372,26 @@ class PatternWizard(ctk.CTkToplevel):
 
         self.abort_flag.clear()
         self.abort_btn.configure(state="normal")
+        self.back_btn.configure(state="disabled")
+        self.start_btn.configure(state="disabled")
         self.label.configure(text="Scanning...")
         self.data.clear()
 
         if mode == "full":
             self.setup_plot_area()
 
-        self.full_scan_btn.configure(state="disabled")
-        self.xy_slice_btn.configure(state="disabled")
-        self.phi0_btn.configure(state="disabled")
-        self.phi90_btn.configure(state="disabled")
 
         self.scan_thread = threading.Thread(target=self.run_scan, args=(mode,), daemon=True)
         self.scan_thread.start()
 
     def show_param_form(self, mode):
+        """
+        Displays a parameter form based on the selected scan type.
+        Dynamically creates required input fields.
+
+        Args:
+            mode (str): Selected scan type.
+        """
         self.selected_mode = mode
 
         # Hide mode buttons and Close button
@@ -327,6 +400,7 @@ class PatternWizard(ctk.CTkToplevel):
                 self.xy_slice_btn,
                 self.phi0_btn,
                 self.phi90_btn,
+                self.custom_slice_btn,
                 self.close_btn,
         ):
             w.pack_forget()
@@ -349,10 +423,19 @@ class PatternWizard(ctk.CTkToplevel):
         if mode in ["full", "xy"]:
             fields.insert(0, ("Phi Step (°)", "phi_step"))
         if mode == "custom":
-            fields.insert(0, ("Fixed Axis (phi/theta)", "fixed_axis"))
-            fields.insert(1, ("Fixed Angle (°)", "fixed_angle"))
-            fields.insert(2, ("Step Size", "step_size"))
+            fields.insert(0, ("Fixed Angle (°)", "fixed_angle"))
+            fields.insert(1, ("Step Size", "step_size"))
 
+        if mode == "custom":
+            # dropdown for slice option
+            axis_row = ctk.CTkFrame(self.param_frame)
+            axis_row.pack(pady=3)
+            axis_label = ctk.CTkLabel(axis_row, text="Fixed Axis", width=140, anchor="w")
+            axis_label.pack(side="left", padx=5)
+            axis_dropdown = ctk.CTkOptionMenu(axis_row, values=["phi", "theta"])
+            axis_dropdown.set("phi")  # default
+            axis_dropdown.pack(side="left")
+            self.entries["fixed_axis"] = axis_dropdown
         for label_text, key in fields:
             row = ctk.CTkFrame(self.param_frame)
             row.pack(pady=3)
@@ -362,6 +445,7 @@ class PatternWizard(ctk.CTkToplevel):
             entry.pack(side="left")
             self.entries[key] = entry
 
+
         # Pack buttons on param screen (No Close)
         self.start_btn = ctk.CTkButton(self, text="Start Scan", command=lambda: self.start_scan(mode))
         self.start_btn.pack(pady=5)
@@ -370,20 +454,24 @@ class PatternWizard(ctk.CTkToplevel):
         self.abort_btn.pack(pady=5)
         self.abort_btn.configure(state="disabled")
 
-        self.cancel_btn = ctk.CTkButton(self, text="Back", command=self.show_mode_selection)
-        self.cancel_btn.pack(pady=5)
+        self.back_btn = ctk.CTkButton(self, text="Back", command=self.show_mode_selection)
+        self.back_btn.pack(pady=5)
 
         self.label.configure(text=f"Selected: {mode.upper()} — enter parameters below")
         self.update_idletasks()
         self.geometry(f"{self.winfo_reqwidth() + 100}x{self.winfo_reqheight() + 100}")
 
     def show_mode_selection(self):
+        """
+        Returns to the scan mode selection screen from the parameter entry screen.
+        Resets UI layout and hides any active widgets.
+        """
         if hasattr(self, "param_frame"):
             self.param_frame.destroy()
         if hasattr(self, "start_btn"):
             self.start_btn.destroy()
-        if hasattr(self, "cancel_btn"):
-            self.cancel_btn.destroy()
+        if hasattr(self, "back_btn"):
+            self.back_btn.destroy()
         # Hide 3D canvas if it exists
         if hasattr(self, "canvas_widget") and self.canvas_widget.winfo_exists():
             self.canvas_widget.pack_forget()
@@ -394,6 +482,7 @@ class PatternWizard(ctk.CTkToplevel):
                 self.xy_slice_btn,
                 self.phi0_btn,
                 self.phi90_btn,
+                self.custom_slice_btn,
                 self.close_btn,  # show close again here
         ):
             w.pack(pady=5)
@@ -406,6 +495,10 @@ class PatternWizard(ctk.CTkToplevel):
         self.geometry(f"{self.winfo_reqwidth() + 100}x{self.winfo_reqheight() + 100}")
 
     def setup_plot_area(self):
+        """
+        Initializes the Matplotlib 3D canvas for live plotting.
+        Creates the figure, 3D axis, and canvas widget.
+        """
         if hasattr(self, "canvas_widget") and self.canvas_widget.winfo_exists():
             return  # already created
 

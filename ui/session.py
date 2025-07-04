@@ -1,1 +1,1 @@
-last_test_csv = None
+last_test_csv = None #used to track last csv for use in data analyzer

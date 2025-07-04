@@ -7,8 +7,24 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 
 
 class VNAFrontPanel(ctk.CTkToplevel):
-    def __init__(self, parent, vna_ctrl: VNAController):
+    """
+      A GUI-based soft front panel for controlling and displaying measurements
+      from an Agilent 8720ES VNA using a `VNAController` interface.
 
+      This panel allows the user to:
+      - Select S-parameters (S11, S12, S21, S22)
+      - Change display format (e.g., LOGM, PHAS, SWR)
+      - Fetch and plot the current VNA trace
+      - View plots with interactive toolbar
+      """
+    def __init__(self, parent, vna_ctrl: VNAController):
+        """
+        Initialize the front panel window and its widgets.
+
+        Args:
+            parent: The parent tkinter window or frame.
+            vna_ctrl (VNAController): A controller instance for communicating with the VNA.
+        """
         super().__init__(parent)
         self.vna_ctrl = vna_ctrl
 
@@ -41,15 +57,26 @@ class VNAFrontPanel(ctk.CTkToplevel):
         self.toolbar = None
 
         # Close button
-        self.close_btn = ctk.CTkButton(self, text="close", command=self.on_close)
+        self.close_btn = ctk.CTkButton(self, text="close", command=self.handle_close)
         self.close_btn.grid(row=4, column=0, padx=10, pady=10)
         self.update_idletasks()
         self.geometry(f"{self.winfo_reqwidth() + 100}x{self.winfo_reqheight() + 100}")
 
     def select_sparam(self, sparam: str):
+        """
+        Selects the S-parameter to measure (e.g., S11, S21) on the VNA.
+
+        Args:
+            sparam (str): The S-parameter to select (e.g., 'S11').
+        """
         self.vna_ctrl.select_sparam(sparam)
 
     def display_trace(self):
+        """
+        Reads the trace data from the VNA and plots it in the GUI.
+        The trace is displayed as a frequency vs magnitude (dB) plot.
+        Replaces any existing plot in the panel.
+        """
         try:
             freqs, mags = self.vna_ctrl.read_trace(channel="CHAN1")
             if self.canvas:
@@ -71,5 +98,11 @@ class VNAFrontPanel(ctk.CTkToplevel):
         except Exception as e:
             print(f"Error displaying trace: {e}")
 
-    def on_close(self):
-        self.destroy()
+    def handle_close(self):
+        """
+        Closes the VNA front panel window.
+        """
+        try:
+            self.destroy()
+        except Exception:
+            pass

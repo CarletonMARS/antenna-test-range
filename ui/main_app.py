@@ -13,6 +13,12 @@ from interfaces.serial_interface import SerialController
 
 class MainApp(ctk.CTk):
     def __init__(self):
+        """
+        Initializes the main GUI for the Antenna Test Range Controller.
+
+        Sets up the GUI layout, connects buttons, and loads the required controllers
+        for the positioner and VNA systems.
+        """
         super().__init__()
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
@@ -74,22 +80,46 @@ class MainApp(ctk.CTk):
         self.status.grid(row=5, column=0, columnspan=2, pady=10)
 
         # Close button
-        self.btn_close = ctk.CTkButton(self.main_frame, text="CLOSE", command=self.close)
+        self.btn_close = ctk.CTkButton(self.main_frame, text="CLOSE", command=self.handle_close)
         self.btn_close.grid(row=6, column=0, columnspan=2, pady=15)
 
     def open_vna_panel(self):
+        """
+        Opens the VNA soft front panel window.
+        """
         VNAFrontPanel(self, self.vna_ctrl)
 
     def open_manual_control(self):
+        """
+        Opens the manual control window for the positioner.
+        """
         ManualControlWindow(self, self.serial_ctrl)
 
     def open_pattern_wizard(self):
+        """
+        Opens the 3D Pattern Wizard for automated antenna scanning.
+        """
         PatternWizard(self, self.vna_ctrl, self.serial_ctrl)
 
     def open_data_analyzer(self):
+        """
+        Opens the Data Analysis window for viewing and plotting collected scan data.
+        """
         DataAnalysisWindow(self)
 
     def vna_connect(self):
+        """
+        Connects to the VNA using the configured GPIB address.
+
+        If successful:
+            - Enables the VNA control panel.
+            - Updates the status label.
+            - Enables the Pattern Wizard if serial is also connected.
+
+        On failure:
+            - Displays an error in the status label.
+        """
+
         try:
             self.vna_ctrl = VNAController(settings.GPIB_ADDRESS)
             idn = self.vna_ctrl.connect()
@@ -102,6 +132,15 @@ class MainApp(ctk.CTk):
             self.status.configure(text=f"VNA failed: {e}")
 
     def connect_serial(self):
+        """
+        Connects to the positioner using the configured serial port and baud rate.
+
+        Homes all axes and moves to (0, 0).
+        Enables manual control and pattern wizard if VNA is also connected.
+
+        On failure:
+            - Displays an error in the status label.
+        """
         try:
             self.serial_ctrl = SerialController(settings.COM_PORT, settings.BAUD_RATE)
             self.serial_ctrl.home_xya()
@@ -117,15 +156,22 @@ class MainApp(ctk.CTk):
             self.status.configure(text=f"Connection Failed: {e}")
 
     def update_textbox(self, text):
-        """Updates the textbox with new text."""
+        """
+        Updates the GUI textbox with the provided text.
+
+        Args:
+            text (str): The text to display.
+        """
         self.textbox.delete("1.0", "end")  # Clear previous text
         self.textbox.insert("end", text)  # Insert new text
 
-    def close(self):
-        """Closes interface connections and program"""
+    def handle_close(self):
+        """
+        Safely closes VNA and serial connections, then exits the application.
+        """
         if self.vna_ctrl:
-            self.vna_ctrl.close()
+            self.vna_ctrl.handle_close()
         if self.serial_ctrl:
-            self.serial_ctrl.close()
+            self.serial_ctrl.handle_close()
         self.destroy()
         sys.exit(0)
