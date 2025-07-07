@@ -225,21 +225,23 @@ class PatternWizard(ctk.CTkToplevel):
 
     def init_csv(self, filename):
         """
-        Creates a new CSV file with column headers if it doesn't already exist.
+        Appends a new test header and column labels to the existing CSV file,
+        or creates a new CSV file with column headers if it doesn't already exist.
 
         Args:
             filename (str): Path to the CSV file to create.
         """
-        if not os.path.exists(filename):
-            with open(filename, mode="w", newline="") as f:
-                import datetime
-                now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                f.write(f"# Test Type: {self.test_label}\n")
-                f.write(f"# Date: {now}\n")
-                f.write("#\n")
-                writer = csv.writer(f)
-                writer.writerow(["Phi (deg)", "Theta (deg)", "Frequency (GHz)", "Magnitude (dB)"])
+        import datetime
+        is_new_file = not os.path.exists(filename)
 
+        with open(filename, mode="a", newline="") as f:
+            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"\n# Test Type: {self.test_label}\n")
+            f.write(f"# Date: {now}\n")
+            f.write("#\n")
+            writer = csv.writer(f)
+            writer.writerow(["Phi (deg)", "Theta (deg)", "Frequency (GHz)", "Magnitude (dB)"])
+        self._is_first_write = is_new_file
     def append_csv_row(self, filename, row):
         """
         Appends a single row of scan data to the CSV file.

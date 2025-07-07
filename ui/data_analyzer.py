@@ -84,8 +84,8 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         self.btn_close = ctk.CTkButton(self.button_frame, text="Close", command=self.handle_close)
 
         self.btn_load_csv.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
-        self.btn_load_cal.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
-        self.btn_load_last.grid(row=2, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
+        self.btn_load_last.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
+        self.btn_load_cal.grid(row=2, column=0, columnspan =2, padx=10, pady=5, sticky="ew")
         self.freq_dropdown.grid(row=3, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
         self.btn_plot_slice.grid(row=4, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
         self.btn_plot_3d.grid(row=5, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
