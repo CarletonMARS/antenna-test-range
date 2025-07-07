@@ -37,6 +37,7 @@ class PatternWizard(ctk.CTkToplevel):
         self.freq_points = None
         self.freq_start = None
         self.csv_path = None
+        self.test_label = "Unknown Test"
 
         # for tracking pending after() callbacks
         self._after_ids = []
@@ -229,9 +230,13 @@ class PatternWizard(ctk.CTkToplevel):
         Args:
             filename (str): Path to the CSV file to create.
         """
-        #TODO: More information in header, then if file already exists need to simply append next scan to bottom of previous scan
         if not os.path.exists(filename):
             with open(filename, mode="w", newline="") as f:
+                import datetime
+                now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                f.write(f"# Test Type: {self.test_label}\n")
+                f.write(f"# Date: {now}\n")
+                f.write("#\n")
                 writer = csv.writer(f)
                 writer.writerow(["Phi (deg)", "Theta (deg)", "Frequency (GHz)", "Magnitude (dB)"])
 
@@ -393,7 +398,14 @@ class PatternWizard(ctk.CTkToplevel):
             mode (str): Selected scan type.
         """
         self.selected_mode = mode
-
+        mode_labels = {
+            "full": "Full Spherical Scan",
+            "xy": "XY Slice (theta = 90)",
+            "phi0": "Phi = 0 Slice",
+            "phi90": "Phi = 90 slice",
+            "custom": "Custom 2D Slice",
+        }
+        self.test_label = mode_labels.get(mode, "Unknown Test")
         # Hide mode buttons and Close button
         for w in (
                 self.full_scan_btn,
