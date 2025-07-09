@@ -1,6 +1,7 @@
 import threading
 import csv
 import os
+import time
 import tkinter as tk
 import customtkinter as ctk
 import numpy as np
@@ -39,10 +40,10 @@ class PatternWizard(ctk.CTkToplevel):
         self.csv_path = None
         self.test_label = "Unknown Test"
 
-        # for tracking pending after() callbacks
+        # for tracking pending after() callback
         self._after_ids = []
         self._orig_after = super().after
-        self.after = self._schedule  # monkey-patch instance .after
+        self.after = self._schedule
 
         # to plot in batches
         self._plot_buffer = []
@@ -50,6 +51,8 @@ class PatternWizard(ctk.CTkToplevel):
 
         # keep handle on our scan thread
         self.scan_thread = None
+        self.pause_flag = threading.Event()
+        self.pause_flag.set()
 
         self.create_widgets()
         self.protocol("WM_DELETE_WINDOW", self.handle_close)
@@ -88,6 +91,8 @@ class PatternWizard(ctk.CTkToplevel):
         # Scan mode buttons
         self.abort_btn = ctk.CTkButton(self, text="Abort", command=self.abort_scan)
         self.abort_btn.configure(state="disabled")
+        self.pause_btn = ctk.CTkButton(self, text="Pause", command=self.toggle_pause)
+
         self.full_scan_btn = ctk.CTkButton(self, text="Full 3D Scan", command=lambda: self.show_param_form("full"))
         self.xy_slice_btn = ctk.CTkButton(self, text="XY Slice (θ=90)", command=lambda: self.show_param_form("xy"))
         self.phi0_btn = ctk.CTkButton(self, text="Phi = 0 Slice", command=lambda: self.show_param_form("phi0"))
@@ -145,6 +150,8 @@ class PatternWizard(ctk.CTkToplevel):
         if self.scan_thread and self.scan_thread.is_alive():
             self.scan_thread.join(timeout=1)
 
+        self.safe_gui_update(self.pause_btn, state="disabled")
+
         # 4) destroy only this Toplevel
         try:
             self.destroy()
@@ -182,34 +189,48 @@ class PatternWizard(ctk.CTkToplevel):
             self.safe_gui_update(self.label, text="Invalid scan mode.")
             return
 
+        total_steps = len(theta_range) * len(phi_range)
+        done_steps = 0
+        self.safe_gui_update(self.progress_bar, set=0)
+        self.safe_gui_update(self.progress_bar.pack)  # Show bar
+
         self.data.clear()
         for phi in phi_range:
-            if self.abort_flag.is_set(): break
-            for theta in theta_range:
+            while not self.pause_flag.is_set():
+                self.after(100, lambda: None)  # Idle GUI
+                time.sleep(0.1)
                 if self.abort_flag.is_set(): break
-                try:
-                    self.serial.move_to(phi, theta)
-                    self.serial.wait_for_idle(60)
-                except Exception as e:
-                    return self.safe_gui_update(self.label, text=f"Positioner error: {e}")
+                for theta in theta_range:
+                    if self.abort_flag.is_set(): break
+                    try:
+                        self.serial.move_to(phi, theta)
+                        self.serial.wait_for_idle(60)
+                    except Exception as e:
+                        return self.safe_gui_update(self.label, text=f"Positioner error: {e}")
 
-                try:
-                    freqs, mags = self.vna.read_trace()
-                    dir_path = os.path.dirname(self.csv_path)
-                    if not os.path.exists(dir_path):
-                        os.makedirs(dir_path, exist_ok=True)
-                    self.init_csv(self.csv_path)
+                    try:
+                        freqs, mags = self.vna.read_trace()
+                        dir_path = os.path.dirname(self.csv_path)
+                        if not os.path.exists(dir_path):
+                            os.makedirs(dir_path, exist_ok=True)
+                        self.init_csv(self.csv_path)
 
-                    for f, m in zip(freqs, mags):
-                        row = (phi, theta, f, m)
-                        self.data.append(row)
-                        self.append_csv_row(self.csv_path, row)
-                    if mode == "full":
-                        mid_idx = len(freqs) // 2
-                        m = mags[mid_idx]
-                        self.update_3d_plot(phi, theta, m)
-                except Exception as e:
-                    return self.safe_gui_update(self.label, text=f"VNA error: {e}")
+                        for f, m in zip(freqs, mags):
+                            row = (phi, theta, f, m)
+                            self.data.append(row)
+                            self.append_csv_row(self.csv_path, row)
+                        if mode == "full":
+                            mid_idx = len(freqs) // 2
+                            m = mags[mid_idx]
+                            self.update_3d_plot(phi, theta, m)
+                    except Exception as e:
+                        return self.safe_gui_update(self.label, text=f"VNA error: {e}")
+                    done_steps += 1
+                    progress = done_steps / total_steps
+                    self.safe_gui_update(self.progress_bar, set=progress)
+            done_steps += 1
+            progress = done_steps / total_steps
+            self.safe_gui_update(self.progress_bar, set=progress)
 
         if not self.abort_flag.is_set():
             self.serial.move_to(0, 0)
@@ -218,10 +239,11 @@ class PatternWizard(ctk.CTkToplevel):
             self.serial.move_to(0, 0)
             self.safe_gui_update(self.label, text="Scan aborted.")
 
+        self.safe_gui_update(self.progress_bar.pack_forget)
         self.safe_gui_update(self.back_btn, state="normal")
         self.safe_gui_update(self.start_btn, state="normal")
         self.safe_gui_update(self.abort_btn, state="disabled")
-
+        self.safe_gui_update(self.pause_btn, state="disabled")
 
     def init_csv(self, filename):
         """
@@ -291,7 +313,9 @@ class PatternWizard(ctk.CTkToplevel):
         if self.alive:
             self.after(0, draw)
 
-    def safe_gui_update(self, widget, **kwargs):
+
+
+    def safe_gui_update(self, widget, set=None, **kwargs):
         """
         Safely updates a widget’s attributes from any thread by using `after()`.
 
@@ -302,6 +326,10 @@ class PatternWizard(ctk.CTkToplevel):
         def upd():
             if not self.winfo_exists(): return
             try:
+                if set is not None and hasattr(widget, "set"):
+                    widget.set(set)
+                if "pack" in kwargs and callable(widget.pack):
+                    widget.pack()
                 widget.configure(**kwargs)
             except Exception:
                 pass
@@ -387,7 +415,9 @@ class PatternWizard(ctk.CTkToplevel):
         if mode == "full":
             self.setup_plot_area()
 
-
+        self.pause_btn.configure(state="normal")
+        self.pause_btn.configure(text="Pause")
+        self.pause_flag.set()
         self.scan_thread = threading.Thread(target=self.run_scan, args=(mode,), daemon=True)
         self.scan_thread.start()
 
@@ -464,12 +494,20 @@ class PatternWizard(ctk.CTkToplevel):
         self.start_btn = ctk.CTkButton(self, text="Start Scan", command=lambda: self.start_scan(mode))
         self.start_btn.pack(pady=5)
 
-        # Now pack abort_btn (which was already created)
+        # Now pack pause_btn and abort_btn (which was already created)
         self.abort_btn.pack(pady=5)
         self.abort_btn.configure(state="disabled")
+        self.pause_btn.pack(pady=5)
+        self.pause_btn.configure(state="disabled")
 
         self.back_btn = ctk.CTkButton(self, text="Back", command=self.show_mode_selection)
         self.back_btn.pack(pady=5)
+
+        self.progress_bar = ctk.CTkProgressBar(self)
+        self.progress_bar.set(0)
+        self.progress_bar.pack(pady=5)
+        self.progress_bar.configure(width=300)
+        self.progress_bar.pack_forget()
 
         self.label.configure(text=f"Selected: {mode.upper()} — enter parameters below")
         self.update_idletasks()
@@ -502,7 +540,9 @@ class PatternWizard(ctk.CTkToplevel):
             w.pack(pady=5)
 
         self.abort_btn.configure(state="disabled")
-        self.abort_btn.pack_forget()  # hide abort on first screen
+        self.abort_btn.pack_forget()
+        self.pause_btn.configure(state="disabled")
+        self.pause_btn.pack_forget()
 
         self.label.configure(text="Select scan type to begin")
         self.update_idletasks()
@@ -521,3 +561,16 @@ class PatternWizard(ctk.CTkToplevel):
         self.canvas = FigureCanvasTkAgg(self.fig, master=self)
         self.canvas_widget = self.canvas.get_tk_widget()
         self.canvas_widget.pack(fill="both", expand=True)
+
+    def toggle_pause(self):
+        """
+        Toggles the pause state of the scan. When paused, the scan thread will wait.
+        """
+        if self.pause_flag.is_set():
+            self.pause_flag.clear()
+            self.pause_btn.configure(text="Resume")
+            self.label.configure(text="Scan paused.")
+        else:
+            self.pause_flag.set()
+            self.pause_btn.configure(text="Pause")
+            self.label.configure(text="Scan resumed.")
