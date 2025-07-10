@@ -100,7 +100,17 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         """
         file_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
         if cal:
-            self.cal_df = pd.read_csv(file_path, header=0, dtype=str)
+            self.cal_df = pd.read_csv(file_path, header=0)
+            self.cal_df.rename(columns={
+                'Frequency (GHz)': 'freq_ghz',
+                'Correction (dB)': 'corr_db'
+            }, inplace=True)
+            try:
+                self.cal_df = self.cal_df.astype({'freq_ghz': float, 'corr_db': float})
+                print("Loaded calibration data:", file_path)
+            except Exception as e:
+                print("Error parsing calibration file:", e)
+            return  # Exit to avoid overwriting self.df accidentally
         if file_path:
             self.df = pd.read_csv(file_path, header=0, dtype=str)
             self.df.rename(columns={
@@ -173,16 +183,19 @@ class DataAnalysisWindow(ctk.CTkToplevel):
 
     def get_freq_filtered_df(self):
         """
-        Filters the dataset to only include rows for the currently selected frequency.
+        Filters dataset to currently selected frequency and applies calibration correction.
 
         Returns:
-            pandas.DataFrame: Filtered dataframe for the selected frequency, or None if invalid.
+            pandas.DataFrame: Corrected dataframe or None.
         """
         if self.df is None or 'freq_ghz' not in self.df.columns:
             return None
         try:
             freq = float(self.freq_var.get())
-            return self.df[self.df['freq_ghz'] == freq].copy()
+            subset = self.df[self.df['freq_ghz'] == freq].copy()
+            offset = self.get_correction_offset(freq)
+            subset['mag_db_corrected'] = subset['mag_db'] + offset
+            return subset
         except Exception as e:
             print("Invalid frequency selection:", e)
             return None
@@ -324,18 +337,18 @@ class DataAnalysisWindow(ctk.CTkToplevel):
                 print(f"No data found for {slice_type} = {slice_val}")
                 return
 
-            plot_mag = filtered_df['mag_db']
+            mag_db = filtered_df.get('mag_db_corrected', filtered_df['mag_db'])
             if self.normalize_var.get():
-                plot_mag = plot_mag - np.max(plot_mag)
+                mag_db = mag_db - np.max(mag_db)
 
             self.figure.clf()
             self.ax = self.figure.add_subplot(111)
 
             if slice_type == 'phi':
-                self.ax.plot(filtered_df['theta_deg'], plot_mag, label=f"φ={slice_val:.2f}°", color="cyan")
+                self.ax.plot(filtered_df['theta_deg'], mag_db, label=f"φ={slice_val:.2f}°", color="cyan")
                 self.ax.set_xlabel("Theta (°)")
             else:
-                self.ax.plot(filtered_df['phi_deg'], plot_mag, label=f"θ={slice_val:.2f}°", color="magenta")
+                self.ax.plot(filtered_df['phi_deg'], mag_db, label=f"θ={slice_val:.2f}°", color="magenta")
                 self.ax.set_xlabel("Phi (°)")
 
             self.ax.set_ylabel("Magnitude (dB)")
@@ -369,7 +382,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             theta = np.deg2rad(slice_df['theta_deg'].values)
             phi = np.deg2rad(slice_df['phi_deg'].values)
 
-            mag_db = slice_df['mag_db'].values
+            mag_db = slice_df.get('mag_db_corrected', slice_df['mag_db']).values
             if self.normalize_var.get():
                 mag_db -= np.max(mag_db)
             r = 10 ** (mag_db / 20)
@@ -404,6 +417,26 @@ class DataAnalysisWindow(ctk.CTkToplevel):
                 self.plot_2d_slice_with_selection(slice_df)
         elif self.last_plot_mode == '3d':
             self.plot_3d_spherical()
+
+    def get_correction_offset(self, freq_ghz):
+        """
+        Interpolates calibration correction (in dB) at the given frequency.
+
+        Args:
+            freq_ghz (float): Frequency to correct for.
+
+        Returns:
+            float: Interpolated correction offset, or 0 if cal_df is not loaded.
+        """
+        if self.cal_df is None:
+            return 0.0
+        try:
+            freqs = self.cal_df['freq_ghz'].values
+            corrections = self.cal_df['corr_db'].values
+            return float(np.interp(freq_ghz, freqs, corrections))
+        except Exception as e:
+            print("Interpolation error:", e)
+            return 0.0
 
     def handle_close(self):
         """
