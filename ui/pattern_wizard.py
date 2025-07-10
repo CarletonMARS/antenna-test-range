@@ -223,6 +223,21 @@ class PatternWizard(ctk.CTkToplevel):
                             mid_idx = len(freqs) // 2
                             m = mags[mid_idx]
                             self.update_3d_plot(phi, theta, m)
+                        else:
+                            mid_idx = len(freqs) // 2
+                            m = mags[mid_idx]
+
+                            # choose sweeping angle
+                            if mode == "xy":
+                                angle = phi
+                            elif mode in ["phi0", "phi90"]:
+                                angle = theta
+                            elif mode == "custom":
+                                angle = theta if self.custom_fixed_axis == "phi" else phi
+                            else:
+                                angle = 0  # fallback
+
+                            self.update_2d_plot(angle, m)
                     except Exception as e:
                         return self.safe_gui_update(self.label, text=f"VNA error: {e}")
                     done_steps += 1
@@ -275,6 +290,31 @@ class PatternWizard(ctk.CTkToplevel):
         with open(filename, mode="a", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(row)
+
+    def update_2d_plot(self, angle, db_val):
+        """
+        Updates the 2D live plot (for slice scans).
+
+        Args:
+            angle (float): Either theta or phi, depending on mode.
+            db_val (float): Magnitude in dB.
+        """
+        if not hasattr(self, "ax2d"):
+            return
+
+        self._xvals.append(angle)
+        self._yvals.append(db_val)
+
+        def draw():
+            if not self.winfo_exists():
+                return
+            self._line2d.set_data(self._xvals, self._yvals)
+            self.ax2d.relim()
+            self.ax2d.autoscale_view()
+            self.canvas.draw()
+
+        if self.alive:
+            self.after(0, draw)
 
     def update_3d_plot(self, phi, theta, db_val):
         """
@@ -414,7 +454,8 @@ class PatternWizard(ctk.CTkToplevel):
 
         if mode == "full":
             self.setup_plot_area()
-
+        else:
+            self.setup_plot_area(mode)
         self.pause_btn.configure(state="normal")
         self.pause_btn.configure(text="Pause")
         self.pause_flag.set()
@@ -548,16 +589,25 @@ class PatternWizard(ctk.CTkToplevel):
         self.update_idletasks()
         self.geometry(f"{self.winfo_reqwidth() + 100}x{self.winfo_reqheight() + 100}")
 
-    def setup_plot_area(self):
+    def setup_plot_area(self, mode="full"):
         """
-        Initializes the Matplotlib 3D canvas for live plotting.
-        Creates the figure, 3D axis, and canvas widget.
+        Initializes the Matplotlib canvas for live plotting.
+        If 'full' mode: creates 3D plot, otherwise creates 2D plot.
         """
         if hasattr(self, "canvas_widget") and self.canvas_widget.winfo_exists():
             return  # already created
 
         self.fig = plt.figure(figsize=(5, 4))
-        self.ax = self.fig.add_subplot(111, projection='3d')
+        if mode == "full":
+            self.ax = self.fig.add_subplot(111, projection='3d')
+        else:
+            self.ax2d = self.fig.add_subplot(111)
+            self.ax2d.set_xlabel("Angle (deg)")
+            self.ax2d.set_ylabel("Magnitude (dB)")
+            self.ax2d.set_title("Live 2D Pattern")
+            self._xvals, self._yvals = [], []
+            self._line2d, = self.ax2d.plot([], [], 'bo-')  # blue dots
+
         self.canvas = FigureCanvasTkAgg(self.fig, master=self)
         self.canvas_widget = self.canvas.get_tk_widget()
         self.canvas_widget.pack(fill="both", expand=True)
