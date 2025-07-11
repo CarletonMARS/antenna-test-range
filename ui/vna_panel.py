@@ -192,8 +192,17 @@ class VNAFrontPanel(ctk.CTkToplevel):
         self._popup_entry("Enter SPAN (GHz):", lambda val: self.vna_ctrl.write(f"SPAN {val}GHz"))
 
     def set_power(self):
-        """Prompt for output power and set it on the VNA."""
-        self._popup_entry("Enter POWER (dBm):", lambda val: self.vna_ctrl.write(f"POWE {val}"))
+        """Prompt for output power and set it on the VNA with range validation."""
+        def callback(val):
+            try:
+                power = float(val)
+                if power < -70 or power > 5:
+                    raise ValueError("Power must be between -70 and 5 dBm.")
+                self.vna_ctrl.write(f"POWE {power}")
+            except ValueError as e:
+                self._show_error_popup(f"Invalid power value: {e}")
+
+        self._popup_entry("Enter POWER (dBm):", callback)
 
     def _popup_entry(self, prompt: str, callback):
         """
