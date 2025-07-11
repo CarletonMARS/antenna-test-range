@@ -281,7 +281,7 @@ class PatternWizard(ctk.CTkToplevel):
                 try:
                     freqs, mags = self.vna.read_trace()
                     for f, m in zip(freqs, mags):
-                        row = (phi, theta, f, m)
+                        row = (phi, theta, f, round(m,2))
                         self.data.append(row)
                         self.append_csv_row(self.csv_path, row)
                     if mode == "full":
@@ -308,9 +308,6 @@ class PatternWizard(ctk.CTkToplevel):
                 done_steps += 1
                 progress = done_steps / total_steps
                 self.safe_gui_update(self.progress_bar, set=progress)
-            done_steps += 1
-            progress = done_steps / total_steps
-            self.safe_gui_update(self.progress_bar, set=progress)
 
         if not self.abort_flag.is_set():
             self.serial.move_to(0, 0)
