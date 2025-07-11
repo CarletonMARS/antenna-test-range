@@ -241,6 +241,17 @@ class VNAFrontPanel(ctk.CTkToplevel):
         """
         self.vna_ctrl.select_sparam(sparam)
 
+    def _show_error_popup(self, message: str):
+        popup = ctk.CTkToplevel(self)
+        popup.title("Input Error")
+        popup.geometry("300x100")
+
+        label = ctk.CTkLabel(popup, text=message, wraplength=280)
+        label.pack(pady=10)
+
+        ok_btn = ctk.CTkButton(popup, text="OK", command=popup.destroy)
+        ok_btn.pack()
+
     def handle_close(self):
         """Close the GUI window."""
         try:
