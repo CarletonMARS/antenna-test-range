@@ -181,6 +181,12 @@ class VNAFrontPanel(ctk.CTkToplevel):
         except Exception:
             pass
 
+    def set_start(self):
+        return
+    def set_centre(self):
+        return
+    def set_stop(self):
+        return
     def set_span(self):
         """Prompt for frequency span and set it on the VNA."""
         self._popup_entry("Enter SPAN (GHz):", lambda val: self.vna_ctrl.write(f"SPAN {val}GHz"))

@@ -157,6 +157,73 @@ class PatternWizard(ctk.CTkToplevel):
             self.destroy()
         except Exception:
             pass
+    def start_scan(self, mode):
+        """
+        Parses UI entries, validates inputs, configures the VNA, and starts the scan thread.
+
+        Args:
+            mode (str): Selected scan type ("full", "xy", "phi0", "phi90", "custom").
+        """
+        try:
+            # Validate step entries by mode
+            if "theta_step" in self.entries:
+                self.theta_step = float(self.entries["theta_step"].get())
+                if self.theta_step <= 0:
+                    raise ValueError("Theta step must be > 0")
+            if "phi_step" in self.entries:
+                self.phi_step = float(self.entries["phi_step"].get())
+                if self.phi_step <= 0:
+                    raise ValueError("Phi step must be > 0")
+            if mode == "custom":
+                fixed_axis = self.entries["fixed_axis"].get()
+                fixed_angle = float(self.entries["fixed_angle"].get())
+                step_size = float(self.entries["step_size"].get())
+                if fixed_axis not in ["phi", "theta"]:
+                    self.label.configure(text="Fixed axis must be 'phi' or 'theta'")
+                    return
+                self.custom_fixed_axis = fixed_axis
+                self.custom_fixed_angle = fixed_angle
+                self.custom_step_size = step_size
+
+            # Frequency settings
+            self.freq_start = float(self.entries["freq_start"].get())
+            self.freq_stop = float(self.entries["freq_stop"].get())
+            self.freq_points = float(self.entries["freq_step"].get())
+
+            # CSV path formatting
+            filename = self.entries["csv_path"].get().strip()
+            if not filename.endswith(".csv"):
+                filename += ".csv"
+            self.csv_path = os.path.join("csv", filename)
+            ui.session.last_test_csv = self.csv_path
+        except ValueError as e:
+            self.label.configure(text=f"Invalid input: {e}")
+            return
+
+        try:
+            self.freq_setup()
+        except RuntimeError as e:
+            self.label.configure(text=str(e))
+            return
+
+        self.abort_flag.clear()
+        self.abort_btn.configure(state="normal")
+        self.back_btn.configure(state="disabled")
+        self.start_btn.configure(state="disabled")
+        self.label.configure(text="Scanning...")
+        self.data.clear()
+
+        if mode == "full":
+            self.setup_plot_area()
+        else:
+            self.setup_plot_area(mode)
+        self.pause_btn.configure(state="normal")
+        self.pause_btn.configure(text="Pause")
+        self.update_idletasks()
+        self.geometry(f"{self.winfo_reqwidth() + 100}x{self.winfo_reqheight() + 100}")
+        self.pause_flag.set()
+        self.scan_thread = threading.Thread(target=self.run_scan, args=(mode,), daemon=True)
+        self.scan_thread.start()
 
     def run_scan(self, mode="full"):
         """
@@ -191,58 +258,56 @@ class PatternWizard(ctk.CTkToplevel):
 
         total_steps = len(theta_range) * len(phi_range)
         done_steps = 0
-        self.safe_gui_update(self.progress_bar, set=0)
-        self.safe_gui_update(self.progress_bar.pack)  # Show bar
+        self.safe_gui_update(self.progress_bar, set=0, pack=True) # Show bar
 
         self.data.clear()
+        dir_path = os.path.dirname(self.csv_path)
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path, exist_ok=True)
+        self.init_csv(self.csv_path)
         for phi in phi_range:
-            while not self.pause_flag.is_set():
-                self.after(100, lambda: None)  # Idle GUI
-                time.sleep(0.1)
+            #while not self.pause_flag.is_set():
+                #self.after(100, lambda: None)  # Idle GUI
+                #time.sleep(0.1)
+            if self.abort_flag.is_set(): break
+            for theta in theta_range:
                 if self.abort_flag.is_set(): break
-                for theta in theta_range:
-                    if self.abort_flag.is_set(): break
-                    try:
-                        self.serial.move_to(phi, theta)
-                        self.serial.wait_for_idle(60)
-                    except Exception as e:
-                        return self.safe_gui_update(self.label, text=f"Positioner error: {e}")
+                try:
+                    self.serial.move_to(phi, theta)
+                    self.serial.wait_for_idle(60)
+                except Exception as e:
+                    return self.safe_gui_update(self.label, text=f"Positioner error: {e}")
 
-                    try:
-                        freqs, mags = self.vna.read_trace()
-                        dir_path = os.path.dirname(self.csv_path)
-                        if not os.path.exists(dir_path):
-                            os.makedirs(dir_path, exist_ok=True)
-                        self.init_csv(self.csv_path)
+                try:
+                    freqs, mags = self.vna.read_trace()
+                    for f, m in zip(freqs, mags):
+                        row = (phi, theta, f, m)
+                        self.data.append(row)
+                        self.append_csv_row(self.csv_path, row)
+                    if mode == "full":
+                        mid_idx = len(freqs) // 2
+                        m = mags[mid_idx]
+                        self.update_3d_plot(phi, theta, m)
+                    else:
+                        mid_idx = len(freqs) // 2
+                        m = mags[mid_idx]
 
-                        for f, m in zip(freqs, mags):
-                            row = (phi, theta, f, m)
-                            self.data.append(row)
-                            self.append_csv_row(self.csv_path, row)
-                        if mode == "full":
-                            mid_idx = len(freqs) // 2
-                            m = mags[mid_idx]
-                            self.update_3d_plot(phi, theta, m)
+                        # choose sweeping angle
+                        if mode == "xy":
+                            angle = phi
+                        elif mode in ["phi0", "phi90"]:
+                            angle = theta
+                        elif mode == "custom":
+                            angle = theta if self.custom_fixed_axis == "phi" else phi
                         else:
-                            mid_idx = len(freqs) // 2
-                            m = mags[mid_idx]
+                            angle = 0  # fallback
 
-                            # choose sweeping angle
-                            if mode == "xy":
-                                angle = phi
-                            elif mode in ["phi0", "phi90"]:
-                                angle = theta
-                            elif mode == "custom":
-                                angle = theta if self.custom_fixed_axis == "phi" else phi
-                            else:
-                                angle = 0  # fallback
-
-                            self.update_2d_plot(angle, m)
-                    except Exception as e:
-                        return self.safe_gui_update(self.label, text=f"VNA error: {e}")
-                    done_steps += 1
-                    progress = done_steps / total_steps
-                    self.safe_gui_update(self.progress_bar, set=progress)
+                        self.update_2d_plot(angle, m)
+                except Exception as e:
+                    return self.safe_gui_update(self.label, text=f"VNA error: {e}")
+                done_steps += 1
+                progress = done_steps / total_steps
+                self.safe_gui_update(self.progress_bar, set=progress)
             done_steps += 1
             progress = done_steps / total_steps
             self.safe_gui_update(self.progress_bar, set=progress)
@@ -392,75 +457,8 @@ class PatternWizard(ctk.CTkToplevel):
             self.vna.write(f"STOP {self.freq_stop}GHZ")
             self.vna.write(f"POIN {num_points}")
             self.vna.write("CONT")
-            # don't trigger a sweep here!
         except Exception as e:
             raise RuntimeError(f"VNA config error: {e}")
-
-    def start_scan(self, mode):
-        """
-        Parses UI entries, validates inputs, configures the VNA, and starts the scan thread.
-
-        Args:
-            mode (str): Selected scan type ("full", "xy", "phi0", "phi90", "custom").
-        """
-        try:
-            # Validate step entries by mode
-            if "theta_step" in self.entries:
-                self.theta_step = float(self.entries["theta_step"].get())
-                if self.theta_step <= 0:
-                    raise ValueError("Theta step must be > 0")
-            if "phi_step" in self.entries:
-                self.phi_step = float(self.entries["phi_step"].get())
-                if self.phi_step <= 0:
-                    raise ValueError("Phi step must be > 0")
-            if mode == "custom":
-                fixed_axis = self.entries["fixed_axis"].get()
-                fixed_angle = float(self.entries["fixed_angle"].get())
-                step_size = float(self.entries["step_size"].get())
-                if fixed_axis not in ["phi", "theta"]:
-                    self.label.configure(text="Fixed axis must be 'phi' or 'theta'")
-                    return
-                self.custom_fixed_axis = fixed_axis
-                self.custom_fixed_angle = fixed_angle
-                self.custom_step_size = step_size
-
-            # Frequency settings
-            self.freq_start = float(self.entries["freq_start"].get())
-            self.freq_stop = float(self.entries["freq_stop"].get())
-            self.freq_points = float(self.entries["freq_step"].get())
-
-            # CSV path formatting
-            filename = self.entries["csv_path"].get().strip()
-            if not filename.endswith(".csv"):
-                filename += ".csv"
-            self.csv_path = os.path.join("csv", filename)
-            ui.session.last_test_csv = self.csv_path
-        except ValueError as e:
-            self.label.configure(text=f"Invalid input: {e}")
-            return
-
-        try:
-            self.freq_setup()
-        except RuntimeError as e:
-            self.label.configure(text=str(e))
-            return
-
-        self.abort_flag.clear()
-        self.abort_btn.configure(state="normal")
-        self.back_btn.configure(state="disabled")
-        self.start_btn.configure(state="disabled")
-        self.label.configure(text="Scanning...")
-        self.data.clear()
-
-        if mode == "full":
-            self.setup_plot_area()
-        else:
-            self.setup_plot_area(mode)
-        self.pause_btn.configure(state="normal")
-        self.pause_btn.configure(text="Pause")
-        self.pause_flag.set()
-        self.scan_thread = threading.Thread(target=self.run_scan, args=(mode,), daemon=True)
-        self.scan_thread.start()
 
     def show_param_form(self, mode):
         """
@@ -547,7 +545,7 @@ class PatternWizard(ctk.CTkToplevel):
         self.progress_bar = ctk.CTkProgressBar(self)
         self.progress_bar.set(0)
         self.progress_bar.pack(pady=5)
-        self.progress_bar.configure(width=300)
+        self.progress_bar.configure(width=300, height=50)
         self.progress_bar.pack_forget()
 
         self.label.configure(text=f"Selected: {mode.upper()} — enter parameters below")
