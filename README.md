@@ -22,4 +22,4 @@ This GUI-driven application allows users to configure, initiate, monitor, and st
 - **Dependencies:**
 
 ```bash
-pip install customtkinter numpy matplotlib pyserial
+pip install customtkinter numpy matplotlib pyserial pandas
