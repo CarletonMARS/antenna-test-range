@@ -33,7 +33,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         ctk.set_default_color_theme("blue")
 
         self.df = None
-        self.cal_df = None
+        self.offset_df = None
         self.freq_list = []
         self.last_plot_mode = None
 
@@ -42,9 +42,12 @@ class DataAnalysisWindow(ctk.CTkToplevel):
     # ==================== UI SETUP ====================
 
     def create_widgets(self):
+        self.create_control_vars()
+        # Global label above everything
+        self.label_cal_file = ctk.CTkLabel(self, textvariable=self.cal_file_var, anchor="w")
+        self.label_cal_file.pack(padx=20, pady=(10, 0), fill="x")
         self.create_frames()
         self.create_plot_area()
-        self.create_control_vars()
         self.create_buttons()
 
     def create_frames(self):
@@ -65,6 +68,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         self.normalize_var = ctk.BooleanVar(value=False)
         self.slice_type_var = ctk.StringVar(value="phi")
         self.slice_value_var = ctk.StringVar(value="")
+        self.cal_file_var = ctk.StringVar(value="No cal file loaded")
 
     def create_buttons(self):
         self.chk_normalize = ctk.CTkCheckBox(
@@ -82,7 +86,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         buttons = [
             ("Load CSV", self.load_csv),
             ("Load Last Test", self.load_last_csv),
-            ("Load Cal", lambda: self.load_csv(cal=True)),
+            ("Load FSPL Offset", lambda: self.load_csv(cal=True)),
             ("Plot 2D Slice", self.plot_2d_slice),
             ("Plot 3D Spherical", self.plot_3d_spherical),
             ("Close", self.handle_close)
@@ -100,7 +104,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
     def load_csv(self, cal=False):
         file_path = filedialog.askopenfilename(
             initialdir=os.path.join(os.getcwd(), 'csv'),
-            filetypes=[("CSV files", "*.csv")]
+            filetypes=[("CSV Files", "*.csv")]
         )
         if file_path:
             self._load_csv_from_path(file_path, cal)
@@ -118,10 +122,12 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             if cal:
                 df.rename(columns={
                     'Frequency (GHz)': 'freq_ghz',
-                    'Correction (dB)': 'corr_db'
-                }, inplace=True)
-                df = df.astype({'freq_ghz': float, 'corr_db': float})
-                self.cal_df = df
+                    'Correction (dB)': 'offset_db',
+                    'Offset (dB)': 'offset_dB'
+                }, inplace=True, errors="ignore")
+                df = df.astype({'freq_ghz': float, 'offset_db': float})
+                self.offset_df = df
+                self.cal_file_var.set(f"Cal file: {os.path.basename(file_path)}")
                 print("Loaded calibration data:", file_path)
             else:
                 df = self.apply_common_column_renames(df)
@@ -135,7 +141,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
                 self.update_freq_options()
                 print(f"Loaded: {file_path}")
         except Exception as e:
-            print("Error loading CSV:", e)
+            print("Error loading file:", e)
 
     def apply_common_column_renames(self, df):
         df.rename(columns=self.RENAME_MAP, inplace=True)
@@ -161,12 +167,47 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         try:
             freq = float(self.freq_var.get())
             subset = self.df[self.df['freq_ghz'] == freq].copy()
-            offset = self.get_correction_offset(freq)
+
+            # === Apply correction offset ===
+            if hasattr(self, 'offset_df') and self.offset_df is not None:
+                offset = float(np.interp(freq, self.offset_df['freq_ghz'], self.offset_df['offset_db']))
+            else:
+                offset = 0.0
+
             subset['mag_db_corrected'] = subset['mag_db'] + offset
             return subset
+
         except Exception as e:
-            print("Invalid frequency selection:", e)
+            print("Invalid frequency selection or correction error:", e)
             return None
+
+    def get_boresight_based_offset(self, freq_ghz):
+        """
+        Compute calibration offset for a given frequency,
+        relative to the measurement at boresight (phi=90, theta=0).
+        """
+        if self.offset_df is None or self.df is None:
+            return 0.0
+        try:
+            # Interpolated calibration gain from offset csv
+            cal_interp = float(np.interp(freq_ghz, self.offset_df['freq_ghz'], self.offset_df['offset_db']))
+
+            # Boresight measurement in test data
+            boresight = self.df[
+                (np.isclose(self.df['freq_ghz'], freq_ghz)) &
+                (np.isclose(self.df['phi_deg'], 90.0)) &
+                (np.isclose(self.df['theta_deg'], 0.0))
+                ]
+
+            if boresight.empty:
+                print(f"Boresight missing at {freq_ghz:.2f} GHz. Assuming 0 dB reference.")
+                return cal_interp  # assume measured = 0 dB
+
+            measured_gain = boresight['mag_db'].values[0]
+            return cal_interp - measured_gain
+        except Exception as e:
+            print("Error computing boresight-based offset:", e)
+            return 0.0
 
     def validate_columns(self, required):
         if self.df is None:
@@ -188,17 +229,6 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         self.toolbar.update()
         self.toolbar.pack(side=ctk.TOP, fill=ctk.X, pady=(0, 10))
         self.canvas.get_tk_widget().pack(fill=ctk.BOTH, expand=True)
-
-    def get_correction_offset(self, freq_ghz):
-        if self.cal_df is None:
-            return 0.0
-        try:
-            freqs = self.cal_df['freq_ghz'].values
-            corrections = self.cal_df['corr_db'].values
-            return float(np.interp(freq_ghz, freqs, corrections))
-        except Exception as e:
-            print("Interpolation error:", e)
-            return 0.0
 
     def refresh_current_plot(self):
         if self.last_plot_mode == '2d':
@@ -345,3 +375,15 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             self.show_plot()
         except Exception as e:
             print("Error in 3D spherical plot:", e)
+
+    def load_offset_file(self):
+        file_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
+        if not file_path:
+            return
+        try:
+            df = pd.read_csv(file_path)
+            df = df.astype({'freq_ghz': float, 'offset_db': float})
+            self.offset_df = df
+            print(f"Loaded offset file: {file_path}")
+        except Exception as e:
+            print("Failed to load offset file:", e)

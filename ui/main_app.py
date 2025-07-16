@@ -11,7 +11,7 @@ from ui.vna_panel import VNAFrontPanel
 from ui.data_analyzer import DataAnalysisWindow
 from interfaces.vna_interface import VNAController
 from interfaces.serial_interface import SerialController
-
+from ui.calibration_tool import CalibrationToolWindow
 
 class MainApp(ctk.CTk):
     """
@@ -88,20 +88,26 @@ class MainApp(ctk.CTk):
         )
         self.btn_pattern_wizard.grid(row=3, column=0, columnspan=2, padx=20, pady=10)
 
+        self.btn_calibration_tool = ctk.CTkButton(
+            self.main_frame, text="Calibration Tool",
+            command=self.open_calibration_menu
+        )
+        self.btn_calibration_tool.grid(row=4, column=0, columnspan=2, padx=20, pady=10)
+
         self.btn_data_analyzer = ctk.CTkButton(
             self.main_frame, text="Data Analyzer",
             command=self.open_data_analyzer
         )
-        self.btn_data_analyzer.grid(row=4, column=0, columnspan=2, padx=20, pady=10)
+        self.btn_data_analyzer.grid(row=5, column=0, columnspan=2, padx=20, pady=10)
 
     def _add_status_and_exit(self):
         self.status = ctk.CTkLabel(self.main_frame, text="Not Connected")
-        self.status.grid(row=5, column=0, columnspan=2, pady=10)
+        self.status.grid(row=6, column=0, columnspan=2, pady=10)
 
         self.btn_close = ctk.CTkButton(
             self.main_frame, text="CLOSE", command=self.handle_close
         )
-        self.btn_close.grid(row=6, column=0, columnspan=2, pady=15)
+        self.btn_close.grid(row=7, column=0, columnspan=2, pady=15)
 
     # ---------------------- WINDOW OPENERS ----------------------
 
@@ -117,6 +123,8 @@ class MainApp(ctk.CTk):
     def open_data_analyzer(self):
         DataAnalysisWindow(self)
 
+    def open_calibration_menu(self):
+        CalibrationToolWindow(self)
     # ---------------------- CONNECTION METHODS ----------------------
 
     def vna_connect(self):
