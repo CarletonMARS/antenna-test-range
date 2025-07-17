@@ -36,6 +36,8 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         self.offset_df = None
         self.freq_list = []
         self.last_plot_mode = None
+        self.test_blocks = []  # List of dicts with keys: 'type', 'date', 'df'
+        self.selected_test_index = ctk.IntVar(value=0)
 
         self.create_widgets()
 
@@ -54,7 +56,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         self.plot_frame = ctk.CTkFrame(self)
         self.plot_frame.pack(padx=20, pady=20, fill=ctk.BOTH, expand=True)
         self.button_frame = ctk.CTkFrame(self)
-        self.button_frame.pack(pady=10)
+        self.button_frame.pack(padx=20, pady=10, fill=ctk.X)
 
     def create_plot_area(self):
         self.figure = Figure(figsize=(8, 6), dpi=100)
@@ -71,6 +73,10 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         self.cal_file_var = ctk.StringVar(value="No cal file loaded")
 
     def create_buttons(self):
+
+        self.button_frame.grid_columnconfigure(0, weight=1)
+        self.button_frame.grid_columnconfigure(1, weight=1)
+
         self.chk_normalize = ctk.CTkCheckBox(
             self.button_frame, text="Normalize to 0 dB",
             variable=self.normalize_var,
@@ -82,6 +88,13 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             self.button_frame, variable=self.freq_var, values=[], command=self.on_freq_change
         )
         self.freq_dropdown.grid(row=3, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
+
+        self.test_selector = ctk.CTkOptionMenu(
+            self.button_frame, values=[],
+            command=self.on_test_selected,
+            variable=self.selected_test_index
+        )
+        self.test_selector.grid(row=4, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
 
         buttons = [
             ("Load CSV", self.load_csv),
@@ -107,7 +120,10 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             filetypes=[("CSV Files", "*.csv")]
         )
         if file_path:
-            self._load_csv_from_path(file_path, cal)
+            if cal:
+                self._load_csv_from_path(file_path, cal=True)
+            else:
+                self.parse_multi_test_csv(file_path)
 
     def load_last_csv(self):
         file_path = ui.session.last_test_csv
@@ -144,7 +160,21 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             print("Error loading file:", e)
 
     def apply_common_column_renames(self, df):
-        df.rename(columns=self.RENAME_MAP, inplace=True)
+        df.columns = [col.strip() for col in df.columns]  # remove extra whitespace
+
+        col_map = {}
+        for orig_name, new_name in self.RENAME_MAP.items():
+            for actual_col in df.columns:
+                if actual_col.strip().lower() == orig_name.lower():
+                    col_map[actual_col] = new_name
+
+        df.rename(columns=col_map, inplace=True)
+
+        # Optional: check if rename succeeded
+        expected_cols = set(self.RENAME_MAP.values())
+        if not expected_cols.issubset(set(df.columns)):
+            raise ValueError(f"Rename failed — current columns: {df.columns.tolist()}")
+
         return df
 
     def update_freq_options(self):
@@ -387,3 +417,74 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             print(f"Loaded offset file: {file_path}")
         except Exception as e:
             print("Failed to load offset file:", e)
+
+    def parse_multi_test_csv(self, filepath):
+        self.test_blocks.clear()
+        with open(filepath, 'r') as f:
+            lines = f.readlines()
+
+        current_block = []
+        current_meta = {"type": "Unknown", "date": "Unknown"}
+        inside_block = False
+
+        for line in lines:
+            line = line.strip()
+
+            if line.startswith("# Test Type:"):
+                if current_block:
+                    self._finalize_block(current_block, current_meta)
+                    current_block = []
+
+                current_meta = {"type": line.split(":", 1)[1].strip()}
+                inside_block = False
+
+            elif line.startswith("# Date:"):
+                current_meta["date"] = line.split(":", 1)[1].strip()
+
+            elif line == "#":
+                inside_block = True  # Data section begins
+
+            elif inside_block and (line or current_block):
+                current_block.append(line)
+
+        # Final block
+        if current_block:
+            self._finalize_block(current_block, current_meta)
+
+        self.populate_test_selector()
+
+    def _finalize_block(self, lines, meta):
+        try:
+            from io import StringIO
+            data_str = "\n".join(lines)
+            df = pd.read_csv(StringIO(data_str))
+            df = self.apply_common_column_renames(df)
+            df = df.astype({
+                'phi_deg': float,
+                'theta_deg': float,
+                'freq_ghz': float,
+                'mag_db': float
+            })
+            self.test_blocks.append({
+                "meta": meta,
+                "df": df
+            })
+        except Exception as e:
+            print("Failed to parse test block:", e)
+    def populate_test_selector(self):
+        if not self.test_blocks:
+            return
+        options = [
+            f"{i + 1}. {tb['meta']['type']} ({tb['meta']['date']})"
+            for i, tb in enumerate(self.test_blocks)
+        ]
+        self.test_selector.configure(values=options)
+        self.selected_test_index.set(0)
+        self.on_test_selected()
+
+    def on_test_selected(self, *_):
+        index = self.selected_test_index.get()
+        if 0 <= index < len(self.test_blocks):
+            self.df = self.test_blocks[index]['df']
+            self.update_freq_options()
+            self.refresh_current_plot()

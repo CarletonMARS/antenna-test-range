@@ -92,7 +92,7 @@ class ManualControlWindow(ctk.CTkToplevel):
         self.geometry(f"{self.winfo_reqwidth() + 100}x{self.winfo_reqheight() + 100}")
 
     # ---------------------- PHI MOVEMENT ----------------------
-
+    #due to the absolute coordinates of the arm, the applied coordinate system is opposite of the absolute phi
     def phiminus10(self): self.move_and_refresh(+10, 0)
     def phiminus1(self): self.move_and_refresh(+1, 0)
     def phiminus0p1(self): self.move_and_refresh(+0.1, 0)
@@ -127,7 +127,7 @@ class ManualControlWindow(ctk.CTkToplevel):
             phi_target = float(self.phi_entry.get())
             theta_target = float(self.theta_entry.get())
             _, _, z, a, *_ = self.ctrl.query_position()
-            self.ctrl.move_to(phi_target, theta_target, z, a)
+            self.ctrl.move_to(-phi_target, theta_target, z, a)
             self.refresh()
         except ValueError:
             self.update_textbox("Invalid input. Please enter numeric values for Phi and Theta.")
