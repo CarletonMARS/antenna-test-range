@@ -34,7 +34,6 @@ class ManualControlWindow(ctk.CTkToplevel):
     def _setup_window(self):
         self.title("POSITIONER MANUAL CONTROL")
         self.resizable(True, True)
-        self.attributes("-topmost", True)
         self.lift()
         self.after(10, lambda: self.focus_force())
         ctk.set_appearance_mode("dark")

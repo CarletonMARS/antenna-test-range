@@ -603,7 +603,7 @@ class PatternWizard(ctk.CTkToplevel):
             ("Freq Stop (GHz)", "freq_stop"),
             ("Freq Points", "freq_step"),
             ("Power (dBm)", "power"),
-            ("CSV Path", "csv_path")
+            ("CSV Name", "csv_path")
         ]
         if mode in ["full", "phi0", "phi90"]:
             fields.insert(0, ("Theta Step (°)", "theta_step"))
@@ -782,6 +782,7 @@ class PatternWizard(ctk.CTkToplevel):
         self.safe_gui_update(self.start_btn, state="normal")
         self.safe_gui_update(self.abort_btn, state="disabled")
         self.safe_gui_update(self.pause_btn, state="disabled")
+        self.safe_gui_update(self.label, text="Scan Complete")
 
     def update_frequency_dropdown(self, new_values):
         if hasattr(self, "freq_dropdown") and self.freq_dropdown.winfo_exists():

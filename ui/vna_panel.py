@@ -23,7 +23,6 @@ class VNAFrontPanel(ctk.CTkToplevel):
 
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
-        self.attributes("-topmost", True)
         self.geometry("1200x800")
         self.resizable(True, True)
         self.title("AGILENT 8722ES SOFT FRONT PANEL")
@@ -191,12 +190,12 @@ class VNAFrontPanel(ctk.CTkToplevel):
         """Prompt for frequency span and set it on the VNA."""
         self._popup_entry("Enter SPAN (GHz):", lambda val: self.vna_ctrl.write(f"SPAN {val}GHz"))
 
-    def set_power(self):
+    def set_power(self, ovr: bool):
         """Prompt for output power and set it on the VNA with range validation."""
         def callback(val):
             try:
                 power = float(val)
-                if power < -70 or power > 5:
+                if power < -10 or power > 5:
                     raise ValueError("Power must be between -70 and 5 dBm.")
                 self.vna_ctrl.write(f"POWE {power}")
             except ValueError as e:

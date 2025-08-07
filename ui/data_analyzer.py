@@ -434,7 +434,6 @@ class DataAnalysisWindow(ctk.CTkToplevel):
                 if current_block:
                     self._finalize_block(current_block, current_meta)
                     current_block = []
-
                 current_meta = {"type": line.split(":", 1)[1].strip()}
                 inside_block = False
 
@@ -442,9 +441,9 @@ class DataAnalysisWindow(ctk.CTkToplevel):
                 current_meta["date"] = line.split(":", 1)[1].strip()
 
             elif line == "#":
-                inside_block = True  # Data section begins
+                inside_block = True  # Next non-comment line is header
 
-            elif inside_block and (line or current_block):
+            elif inside_block:
                 current_block.append(line)
 
         # Final block

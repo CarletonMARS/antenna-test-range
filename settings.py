@@ -7,4 +7,4 @@ X_JOG_FEEDRATE = 1000  # used by JogPositioner
 Y_JOG_FEEDRATE = 2000  # Used by JogPositioner
 A_JOG_FEEDRATE = 2000  # Used by JogPositioner
 # VNA Settings
-GPIB_ADDRESS = "GPIB0::16::INSTR"
+GPIB_ADDRESS = "GPIB1::16::INSTR"

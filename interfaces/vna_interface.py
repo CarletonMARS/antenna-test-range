@@ -9,7 +9,7 @@ class VNAController:
         Initializes the VNA controller with the given VISA resource string.
 
         Args:
-            resource_str (str): The VISA resource identifier (e.g., "GPIB0::16::INSTR").
+            resource_str (str): The VISA resource identifier (e.g., "GPIB1::16::INSTR").
         """
         self.resource_str = resource_str
         self.rm = None
