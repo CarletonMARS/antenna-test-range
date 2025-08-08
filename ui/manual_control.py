@@ -3,6 +3,7 @@ import os
 import customtkinter as ctk
 from interfaces.serial_interface import SerialController
 import settings
+from interfaces.arduino_stage import ArduinoRotationStage, ArduinoStageConfig
 
 
 class ManualControlWindow(ctk.CTkToplevel):
@@ -15,13 +16,15 @@ class ManualControlWindow(ctk.CTkToplevel):
     - Branded banner
     """
 
-    def __init__(self, parent, serial_ctrl: SerialController):
+    def __init__(self, parent, serial_ctrl: SerialController, rot_stage: ArduinoRotationStage | None = None):
         super().__init__(parent)
-        self.ctrl = serial_ctrl
-        self.connected = False
+        self.ctrl = serial_ctrl         # your GRBL controller (phi/theta/z/a)
+        self.rot = rot_stage or ArduinoRotationStage(ArduinoStageConfig(port="COM7"))  # set port
 
+        self.connected = False
         self._setup_window()
         self._add_banner()
+        self._add_rotary_controls()     # <-- NEW (Arduino rotation)
         self._add_phi_controls()
         self._add_theta_controls()
         self._add_home_controls()
@@ -29,7 +32,30 @@ class ManualControlWindow(ctk.CTkToplevel):
         self._add_custom_goto()
         self._add_textbox()
 
+
+
     # ---------------------- INIT HELPERS ----------------------
+        def _add_rotary_controls(self):
+        # A dedicated row for the Arduino rotation stage (degrees)
+        lbl = ctk.CTkLabel(self, text="Rotation Stage (Arduino)", font=("Helvetica", 14, "bold"))
+        lbl.grid(row=1, column=0, columnspan=3, padx=10, pady=(10, 0), sticky="w")
+
+        btns = [
+            ("Rot -10°", lambda: self.rot_move_rel(-10), 0),
+            ("Rot -1°",  lambda: self.rot_move_rel(-1),  1),
+            ("Rot -0.1°",lambda: self.rot_move_rel(-0.1),2),
+            ("Rot +0.1°",lambda: self.rot_move_rel(+0.1),6),
+            ("Rot +1°",  lambda: self.rot_move_rel(+1),  7),
+            ("Rot +10°", lambda: self.rot_move_rel(+10), 8),
+        ]
+        for text, cmd, col in btns:
+            ctk.CTkButton(self, text=text, command=cmd).grid(row=2, column=col, padx=6, pady=6)
+
+        # zero + goto widgets
+        ctk.CTkButton(self, text="Rot SAVE 0", command=self.rot_save0).grid(row=2, column=4, padx=6, pady=6)
+        self.rot_goto_entry = ctk.CTkEntry(self, placeholder_text="Rot GOTO (°)", width=130)
+        self.rot_goto_entry.grid(row=2, column=5, padx=6, pady=6)
+        ctk.CTkButton(self, text="Rot GOTO", command=self.rot_goto).grid(row=2, column=6, padx=6, pady=6)
 
     def _setup_window(self):
         self.title("POSITIONER MANUAL CONTROL")
@@ -72,6 +98,7 @@ class ManualControlWindow(ctk.CTkToplevel):
         for label, cmd, col in buttons:
             ctk.CTkButton(self, text=label, command=cmd).grid(row=4, column=col, padx=10, pady=10)
 
+    
     def _add_zero_controls(self):
         ctk.CTkButton(self, text="SAVE 0,0,0", command=self.save0).grid(row=5, column=7, padx=10, pady=5)
         ctk.CTkButton(self, text="GOTO 0,0,0", command=self.goto0).grid(row=4, column=7, padx=10, pady=5)
@@ -89,6 +116,36 @@ class ManualControlWindow(ctk.CTkToplevel):
         self.textbox.grid(row=5, column=4, padx=10, pady=10)
         self.update_idletasks()
         self.geometry(f"{self.winfo_reqwidth() + 100}x{self.winfo_reqheight() + 100}")
+        
+    # ---- Arduino rotation helpers ----
+    def rot_move_rel(self, deg):
+        try:
+            reply = self.rot.move_rel_deg(deg)
+            self.rot.wait_estimate(deg)
+            if reply is not None:
+                self.update_textbox(f"Rot moved {deg}°, echo: {reply}")
+            else:
+                self.update_textbox(f"Rot moved {deg}°")
+        except Exception as e:
+            self.update_textbox(f"Rot move failed: {e}")
+
+    def rot_save0(self):
+        try:
+            r = self.rot.reset_origin()
+            self.update_textbox(f"Rot origin set (reply: {r})")
+        except Exception as e:
+            self.update_textbox(f"Rot zero failed: {e}")
+
+    def rot_goto(self):
+        try:
+            target = float(self.rot_goto_entry.get())
+            self.rot.move_abs_deg(target)
+            self.rot.wait_estimate(target)  # crude estimate
+            self.update_textbox(f"Rot moved to {target}° (abs)")
+        except ValueError:
+            self.update_textbox("Rot GOTO: enter a number.")
+        except Exception as e:
+            self.update_textbox(f"Rot goto failed: {e}")
 
     # ---------------------- PHI MOVEMENT ----------------------
     #due to the absolute coordinates of the arm, the applied coordinate system is opposite of the absolute phi
@@ -149,8 +206,12 @@ class ManualControlWindow(ctk.CTkToplevel):
     def update_textbox(self, text):
         self.textbox.delete("1.0", "end")
         self.textbox.insert("end", text)
-
+        
     def handle_close(self):
+        try:
+            self.rot.close()
+        except Exception:
+            pass
         try:
             self.destroy()
         except Exception:
