@@ -36,26 +36,35 @@ class ManualControlWindow(ctk.CTkToplevel):
 
     # ---------------------- INIT HELPERS ----------------------
         def _add_rotary_controls(self):
-        # A dedicated row for the Arduino rotation stage (degrees)
-        lbl = ctk.CTkLabel(self, text="Rotation Stage (Arduino)", font=("Helvetica", 14, "bold"))
-        lbl.grid(row=1, column=0, columnspan=3, padx=10, pady=(10, 0), sticky="w")
+    # Isolated container to avoid grid collisions
+    self.rot_frame = ctk.CTkFrame(self)
+    self.rot_frame.grid(row=1, column=0, columnspan=9, padx=10, pady=(5, 0), sticky="w")
 
-        btns = [
-            ("Rot -10°", lambda: self.rot_move_rel(-10), 0),
-            ("Rot -1°",  lambda: self.rot_move_rel(-1),  1),
-            ("Rot -0.1°",lambda: self.rot_move_rel(-0.1),2),
-            ("Rot +0.1°",lambda: self.rot_move_rel(+0.1),6),
-            ("Rot +1°",  lambda: self.rot_move_rel(+1),  7),
-            ("Rot +10°", lambda: self.rot_move_rel(+10), 8),
-        ]
-        for text, cmd, col in btns:
-            ctk.CTkButton(self, text=text, command=cmd).grid(row=2, column=col, padx=6, pady=6)
+    ctk.CTkLabel(
+        self.rot_frame, text="Rotation Stage (Arduino)", font=("Helvetica", 14, "bold")
+    ).grid(row=0, column=0, columnspan=8, sticky="w", padx=6, pady=(6, 2))
 
-        # zero + goto widgets
-        ctk.CTkButton(self, text="Rot SAVE 0", command=self.rot_save0).grid(row=2, column=4, padx=6, pady=6)
-        self.rot_goto_entry = ctk.CTkEntry(self, placeholder_text="Rot GOTO (°)", width=130)
-        self.rot_goto_entry.grid(row=2, column=5, padx=6, pady=6)
-        ctk.CTkButton(self, text="Rot GOTO", command=self.rot_goto).grid(row=2, column=6, padx=6, pady=6)
+    # Buttons in their own grid row inside the frame
+    btn_specs = [
+        ("Rot -10°", -10),
+        ("Rot -1°",  -1),
+        ("Rot -0.1°",-0.1),
+        ("Rot +0.1°",+0.1),
+        ("Rot +1°",  +1),
+        ("Rot +10°", +10),
+    ]
+    for i, (txt, deg) in enumerate(btn_specs):
+        ctk.CTkButton(self.rot_frame, text=txt,
+                      command=lambda d=deg: self.rot_move_rel(d)
+        ).grid(row=1, column=i, padx=6, pady=6)
+
+    # Zero & GOTO on same frame
+    self.rot_goto_entry = ctk.CTkEntry(self.rot_frame, placeholder_text="Rot GOTO (°)", width=120)
+    self.rot_goto_entry.grid(row=1, column=len(btn_specs), padx=6, pady=6)
+    ctk.CTkButton(self.rot_frame, text="Rot GOTO", command=self.rot_goto
+    ).grid(row=1, column=len(btn_specs)+1, padx=6, pady=6)
+    ctk.CTkButton(self.rot_frame, text="Rot SAVE 0", command=self.rot_save0
+    ).grid(row=1, column=len(btn_specs)+2, padx=6, pady=6)
 
     def _setup_window(self):
         self.title("POSITIONER MANUAL CONTROL")
