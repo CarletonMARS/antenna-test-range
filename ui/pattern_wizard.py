@@ -698,6 +698,23 @@ class PatternWizard(ctk.CTkToplevel):
 
     # ---------- scanning ----------
 
+    def _play_chime(self):
+        """
+        Play a short system notification sound (cross-platform).
+        """
+        try:
+            if sys.platform.startswith("win"):
+                import winsound
+                winsound.MessageBeep(winsound.MB_ICONASTERISK)
+            elif sys.platform == "darwin":
+                os.system('afplay /System/Library/Sounds/Glass.aiff')
+            else:
+                # Linux (requires 'paplay' or 'aplay' to be installed)
+                os.system(
+                    'paplay /usr/share/sounds/freedesktop/stereo/complete.oga 2>/dev/null || aplay /usr/share/sounds/freedesktop/stereo/complete.oga 2>/dev/null')
+        except Exception:
+            pass
+
     def start_scan(self, mode):
         """
         Validate inputs, configure the VNA, reset plots, and launch the scan worker.
@@ -968,6 +985,7 @@ class PatternWizard(ctk.CTkToplevel):
 
         if not self.abort_flag.is_set():
             self.safe_gui_update(self.label, text="Scan complete. Results saved.")
+            self._play_chime()
         else:
             self.safe_gui_update(self.label, text="Scan aborted.")
 

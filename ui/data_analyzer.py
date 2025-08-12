@@ -79,13 +79,26 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         """Assemble variable holders, frames, plot canvas, and top controls."""
         self.create_control_vars()
 
-        # Global label: shows calibration file name
-        self.label_cal_file = ctk.CTkLabel(self, textvariable=self.cal_file_var, anchor="w")
-        self.label_cal_file.pack(padx=20, pady=(10, 0), fill="x")
+        # === Big status bar ===
+        self.status_frame = ctk.CTkFrame(self, corner_radius=12)
+        self.status_frame.pack(padx=20, pady=(12, 0), fill="x")
+
+        self.status_text = ctk.StringVar(value="No cal file loaded • 0 tests")
+        self.status_label = ctk.CTkLabel(
+            self.status_frame,
+            textvariable=self.status_text,
+            anchor="w",
+            font=("Helvetica", 16, "bold"),
+            padx=12,
+            pady=10
+        )
+        self.status_label.pack(fill="x")
 
         self.create_frames()
         self.create_plot_area()
         self.create_buttons()
+        # initialize the bar once
+        self.update_status_bar()
 
     def create_frames(self):
         """Create the plot area frame and the controls frame."""
@@ -117,19 +130,22 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         # row 0: normalize
         self.chk_normalize = ctk.CTkCheckBox(
             self.button_frame, text="Normalize to 0 dB",
-            variable=self.normalize_var, command=self.refresh_current_plot
+            variable=self.normalize_var,
+            command=lambda: (self.refresh_current_plot(), self.update_status_bar())
         )
         self.chk_normalize.grid(row=0, column=0, columnspan=2, padx=100, pady=5, sticky="w")
 
         # row 1: frequency dropdown
         self.freq_dropdown = ctk.CTkOptionMenu(
-            self.button_frame, variable=self.freq_var, values=[], command=self.on_freq_change
+            self.button_frame, variable=self.freq_var, values=[],
+            command=lambda _: (self.on_freq_change(), self.update_status_bar())
         )
         self.freq_dropdown.grid(row=1, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
 
         # row 2: test selector
         self.test_selector = ctk.CTkOptionMenu(
-            self.button_frame, values=[], variable=self.selected_test_label, command=self.on_test_selected
+            self.button_frame, values=[], variable=self.selected_test_label,
+            command=lambda *_: (self.on_test_selected(), self.update_status_bar())
         )
         self.test_selector.grid(row=2, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
 
@@ -153,6 +169,55 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         ctk.CTkButton(frame, text=text, command=command).grid(
             row=row, column=0, columnspan=2, padx=10, pady=5, sticky="ew"
         )
+
+    # ==================== STATUS/TOAST HELPERS ====================
+
+    def update_status_bar(self):
+        """
+        Refresh the top status bar with:
+        Cal file status • number of tests • selected test • freq • normalize
+        """
+        # cal
+        cal_txt = self.cal_file_var.get() or "No cal file loaded"
+        # tests
+        n_tests = len(self.test_blocks)
+        sel = (self.selected_test_label.get() or "").strip()
+        sel_txt = sel if sel else "No test selected"
+        # freq
+        f = (self.freq_var.get() or "").strip()
+        f_txt = f"{f} GHz" if f else "—"
+        # normalize
+        norm_txt = "Normalize: ON" if self.normalize_var.get() else "Normalize: OFF"
+
+        # Make the cal bit shorter: show only filename if possible
+        if cal_txt.lower().startswith("cal file:"):
+            cal_txt = cal_txt.split(":", 1)[1].strip() or "No cal file loaded"
+
+        parts = [
+            f"Cal: {cal_txt}",
+            f"Tests: {n_tests}",
+            f"Selected: {sel_txt}",
+            f"Freq: {f_txt}",
+            norm_txt,
+        ]
+        self.status_text.set("  •  ".join(parts))
+
+    def flash_status(self, message: str, ms: int = 3000):
+        """
+        Temporarily show a message in the status bar, then restore the regular summary.
+
+        Parameters
+        ----------
+        message : str
+            Temporary message to display.
+        ms : int
+            How long to show it (milliseconds).
+        """
+        try:
+            self.status_text.set(message)
+            self.after(ms, self.update_status_bar)
+        except Exception:
+            pass
 
     # ==================== DATA LOADING ====================
 
@@ -181,7 +246,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             if not self.parse_multi_test_csv(file_path):
                 self._load_csv_from_path(file_path, cal=False)
         else:
-            print("No last test file found or path invalid.")
+            self.flash_status("No last test file found or path invalid.")
 
     def _load_csv_from_path(self, file_path, cal=False):
         """
@@ -198,7 +263,8 @@ class DataAnalysisWindow(ctk.CTkToplevel):
                 df = df.astype({'freq_ghz': float, 'offset_db': float})
                 self.offset_df = df
                 self.cal_file_var.set(f"Cal file: {os.path.basename(file_path)}")
-                print("Loaded calibration data:", file_path)
+                self.update_status_bar()
+                self.flash_status(f"Calibration loaded: {os.path.basename(file_path)}")
                 return
 
             # Single test
@@ -218,9 +284,10 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             self.test_selector.configure(values=self.test_labels)
             self.test_selector.set(self.test_labels[0])
             self.on_test_selected()
-            print(f"Loaded single CSV: {file_path}")
+            self.update_status_bar()
+            self.flash_status(f"Loaded: {os.path.basename(file_path)}")
         except Exception as e:
-            print("Error loading file:", e)
+            self.flash_status(f"Error loading file: {e}")
 
     # ---------- Multi-test CSV parsing ----------
 
@@ -237,7 +304,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             with open(filepath, 'r') as f:
                 lines = f.readlines()
         except OSError as e:
-            print("Failed to read CSV:", e)
+            self.flash_status(f"Failed to read CSV: {e}")
             return False
 
         # Try block-style first
@@ -260,7 +327,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             try:
                 df = pd.read_csv(StringIO(data_str))
             except Exception as e:
-                print("Failed to read CSV block:", e)
+                self.flash_status(f"Failed to read one block: {e}")
                 continue
 
             # rename columns to canonical names; try to derive mag_db if alt header used
@@ -305,7 +372,8 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         self.test_selector.configure(values=self.test_labels)
         self.test_selector.set(self.test_labels[0])  # <- use widget setter
         self.on_test_selected()
-        print(f"Loaded multi-test file: {os.path.basename(filepath)} ({len(self.test_blocks)} tests)")
+        self.update_status_bar()
+        self.flash_status(f"Loaded {len(self.test_blocks)} test(s) from {os.path.basename(filepath)}")
         return True
 
     def _split_blocks_blockstyle(self, lines):
@@ -452,6 +520,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         if self.df is None or 'freq_ghz' not in self.df.columns:
             self.freq_dropdown.configure(values=[])
             self.freq_var.set("")
+            self.update_status_bar()
             return
         freqs = sorted(pd.unique(self.df['freq_ghz'].astype(float)))
         self.freq_list = [f"{f:.3f}" for f in freqs]
@@ -461,6 +530,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         else:
             self.freq_var.set("")
         self.on_freq_change()
+        self.update_status_bar()
 
     def on_freq_change(self, _=None):
         """
@@ -476,6 +546,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         if not self.test_blocks:
             self.test_selector.configure(values=[])
             self.selected_test_label.set("")
+            self.update_status_bar()
             return
         self.test_labels = [
             f"{i+1}. {tb['meta'].get('type','Unknown')} ({tb['meta'].get('date','')})"
@@ -484,6 +555,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         self.test_selector.configure(values=self.test_labels)
         self.selected_test_label.set(self.test_labels[0])
         self.on_test_selected()
+        self.update_status_bar()
 
     def on_test_selected(self, *_):
         """
@@ -511,6 +583,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         self.df = self.test_blocks[idx]['df']
         self.update_freq_options()
         self.refresh_current_plot()
+        self.update_status_bar()
 
     # ==================== UTILITY ====================
 
@@ -527,7 +600,8 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             subset = self.df[np.isclose(self.df['freq_ghz'].astype(float), freq, rtol=0, atol=1e-6)].copy()
 
             # === Apply correction offset (optional) ===
-            if getattr(self, 'offset_df', None) is not None:
+            if getattr(self, 'offset_df', None) is not None and \
+               'freq_ghz' in self.offset_df.columns and 'offset_db' in self.offset_df.columns:
                 offset = float(np.interp(freq, self.offset_df['freq_ghz'], self.offset_df['offset_db']))
             else:
                 offset = 0.0
@@ -537,7 +611,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             return subset
 
         except Exception as e:
-            print("Invalid frequency selection or correction error:", e)
+            self.flash_status(f"Frequency/offset error: {e}")
             return None
 
     def validate_columns(self, required):
@@ -545,11 +619,11 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         Verify the active DataFrame contains required columns.
         """
         if self.df is None:
-            print("No data loaded.")
+            self.flash_status("No data loaded.")
             return False
         missing = [col for col in required if col not in self.df.columns]
         if missing:
-            print(f"Missing columns: {missing}")
+            self.flash_status(f"Missing columns: {missing}")
             return False
         return True
 
@@ -609,7 +683,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         """
         # Ensure there is something to export
         if not hasattr(self, "figure") or self.figure is None:
-            print("No figure to export.")
+            self.flash_status("No figure to export.")
             return
 
         # Build default filename
@@ -633,9 +707,9 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             else:
                 self.figure.savefig(path, bbox_inches="tight")
 
-            print(f"Exported plot: {path}")
+            self.flash_status(f"Exported plot: {os.path.basename(path)}")
         except Exception as e:
-            print(f"Failed to export plot: {e}")
+            self.flash_status(f"Failed to export plot: {e}")
 
     def handle_close(self):
         """Destroy the window safely."""
@@ -655,7 +729,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
 
         slice_df = self.get_freq_filtered_df()
         if slice_df is None or slice_df.empty:
-            print("No data at selected frequency.")
+            self.flash_status("No data at selected frequency.")
             return
 
         unique_phi = sorted(pd.unique(slice_df['phi_deg'].astype(float)))
@@ -708,7 +782,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
                 slice_df = self.get_freq_filtered_df()
                 self.plot_2d_slice_with_selection(slice_df)
             except Exception as e:
-                print("Failed to confirm slice selection:", e)
+                self.flash_status(f"Slice selection error: {e}")
 
         ctk.CTkButton(dlg, text="Plot Slice", command=on_confirm).pack(pady=10)
 
@@ -721,7 +795,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             slice_val = float(self.slice_value_var.get())
             filtered_df = slice_df[np.isclose(slice_df[f'{slice_type}_deg'].astype(float), slice_val, rtol=0, atol=1e-6)]
             if filtered_df.empty:
-                print(f"No data found for {slice_type} = {slice_val}")
+                self.flash_status(f"No data found for {slice_type} = {slice_val}")
                 return
 
             mag_db = filtered_df.get('mag_db_corrected', filtered_df['mag_db']).astype(float)
@@ -747,7 +821,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
 
             self.last_plot_mode = '2d'
         except Exception as e:
-            print("Error in 2D slice with selection:", e)
+            self.flash_status(f"2D slice error: {e}")
 
     def plot_3d_spherical(self):
         """
@@ -758,7 +832,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
 
         slice_df = self.get_freq_filtered_df()
         if slice_df is None or slice_df.empty:
-            print("No data at selected frequency.")
+            self.flash_status("No data at selected frequency.")
             return
 
         try:
@@ -787,7 +861,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             self.canvas.draw()
             self.show_plot()
         except Exception as e:
-            print("Error in 3D spherical plot:", e)
+            self.flash_status(f"3D plot error: {e}")
 
     # ==================== CALIBRATION LOADERS ====================
 
@@ -802,6 +876,8 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             df = pd.read_csv(file_path)
             df = df.astype({'freq_ghz': float, 'offset_db': float})
             self.offset_df = df
-            print(f"Loaded offset file: {file_path}")
+            self.cal_file_var.set(f"Cal file: {os.path.basename(file_path)}")
+            self.update_status_bar()
+            self.flash_status(f"Calibration loaded: {os.path.basename(file_path)}")
         except Exception as e:
-            print("Failed to load offset file:", e)
+            self.flash_status(f"Failed to load offset file: {e}")

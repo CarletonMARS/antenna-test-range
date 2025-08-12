@@ -37,11 +37,27 @@ class MainApp(ctk.CTk):
         self._setup_theme()
         self._initialize_layout()
         self._create_widgets()
-
         # Close behavior
         self.protocol("WM_DELETE_WINDOW", self.handle_close)
 
     # ---------------------- SETUP METHODS ----------------------
+
+    def _play_chime(self):
+        """
+        Play a short system notification sound (cross-platform).
+        """
+        try:
+            if sys.platform.startswith("win"):
+                import winsound
+                winsound.MessageBeep(winsound.MB_ICONASTERISK)
+            elif sys.platform == "darwin":
+                os.system('afplay /System/Library/Sounds/Glass.aiff')
+            else:
+                # Linux (requires 'paplay' or 'aplay' to be installed)
+                os.system(
+                    'paplay /usr/share/sounds/freedesktop/stereo/complete.oga 2>/dev/null || aplay /usr/share/sounds/freedesktop/stereo/complete.oga 2>/dev/null')
+        except Exception:
+            pass
 
     def _setup_theme(self):
         """
@@ -151,8 +167,16 @@ class MainApp(ctk.CTk):
         """
         Add connection status label and a Close button.
         """
-        self.status = ctk.CTkLabel(self.main_frame, text="Not Connected")
-        self.status.grid(row=6, column=0, columnspan=2, pady=10)
+        self.status = ctk.CTkLabel(
+            self.main_frame,
+            text="Not Connected",
+            font=("Helvetica", 18, "bold"),
+            text_color="white",
+            corner_radius=8,
+            fg_color="#333333",
+            padx=10, pady=8
+        )
+        self.status.grid(row=6, column=0, columnspan=2, pady=15, sticky="ew")
 
         self.btn_close = ctk.CTkButton(self.main_frame, text="CLOSE", command=self.handle_close)
         self.btn_close.grid(row=7, column=0, columnspan=2, pady=15, sticky="ew")
@@ -209,6 +233,7 @@ class MainApp(ctk.CTk):
             self.vna_ctrl = VNAController(settings.GPIB_ADDRESS)
             idn = self.vna_ctrl.connect()
             self._set_status(f"VNA Connected: {idn}")
+            self._play_chime()
             self.btn_vna_control.configure(state="normal")
             self.btn_connect_vna.configure(text="VNA Connected", state="disabled")
             self._refresh_launch_states()
@@ -233,6 +258,7 @@ class MainApp(ctk.CTk):
 
             self.btn_connect_serial.configure(text="Positioner Connected", state="disabled")
             self._set_status("Positioner Connected")
+            self._play_chime()
             self.btn_manual_control.configure(state="normal")
             self._refresh_launch_states()
         except Exception as e:
