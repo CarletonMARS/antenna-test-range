@@ -1,13 +1,12 @@
-# interfaces/arduino_stage.py
 import serial, time
 from dataclasses import dataclass
 
 @dataclass
 class ArduinoStageConfig:
-    port: str = "COM7"        # set to your Arduino port
+    port: str = "COM7"        # set to Arduino port
     baud: int = 115200
     timeout: float = 0.3
-    steps_per_deg: float = 800.0  # matches the lab code
+    steps_per_deg: float = 800.0  # matches the CTrack Setting
 
 class ArduinoRotationStage:
     """Driver for the Arduino sketch that accepts: '<steps>', 'a<steps>', 'r'."""
@@ -45,8 +44,9 @@ class ArduinoRotationStage:
 
     def move_abs_deg(self, deg: float):
         steps = int(round(deg * self.cfg.steps_per_deg))
-        self._send(f"a{steps}")          # no guaranteed reply
+        self._send(f"a{steps}")
 
-    # simple blocking wait (time-based; firmware doesn’t signal done)
+    # simple blocking wait; time-based; firmware doesn’t signal done;
+    # should add in future for safety
     def wait_estimate(self, deg: float):
         time.sleep(max(0.5, abs(deg) * 0.05))

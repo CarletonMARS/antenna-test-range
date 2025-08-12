@@ -215,7 +215,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             self.test_blocks = [{"meta": {"type": "Single CSV", "date": ""}, "df": df}]
             self.test_labels = ["Single CSV"]
             self.test_selector.configure(values=self.test_labels)
-            self.selected_test_label.set(self.test_labels[0])
+            self.test_selector.set(self.test_labels[0])
             self.on_test_selected()
             print(f"Loaded single CSV: {file_path}")
         except Exception as e:
@@ -302,7 +302,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             for i, tb in enumerate(self.test_blocks)
         ]
         self.test_selector.configure(values=self.test_labels)
-        self.selected_test_label.set(self.test_labels[0])
+        self.test_selector.set(self.test_labels[0])  # <- use widget setter
         self.on_test_selected()
         print(f"Loaded multi-test file: {os.path.basename(filepath)} ({len(self.test_blocks)} tests)")
         return True
@@ -490,16 +490,26 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         """
         if not self.test_blocks or not self.test_labels:
             return
-        label = self.selected_test_label.get()
-        # label begins with "N. ...", map to index
+
+        label = self.selected_test_label.get()  # CTkOptionMenu passes this via the tk variable
+
+        # Preferred: labels start with "N. ..."
+        idx = None
         try:
             idx = int(label.split(".", 1)[0]) - 1
         except Exception:
-            idx = 0
-        if 0 <= idx < len(self.test_blocks):
-            self.df = self.test_blocks[idx]['df']
-            self.update_freq_options()
-            self.refresh_current_plot()
+            pass
+
+        # Fallback: exact label lookup
+        if idx is None or not (0 <= idx < len(self.test_blocks)):
+            try:
+                idx = self.test_labels.index(label)
+            except ValueError:
+                idx = 0
+
+        self.df = self.test_blocks[idx]['df']
+        self.update_freq_options()
+        self.refresh_current_plot()
 
     # ==================== UTILITY ====================
 
