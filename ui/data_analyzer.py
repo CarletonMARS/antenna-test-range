@@ -111,29 +111,29 @@ class DataAnalysisWindow(ctk.CTkToplevel):
         self.cal_file_var = ctk.StringVar(value="No cal file loaded")
 
     def create_buttons(self):
-        """Create and layout all control widgets (checkboxes, dropdowns, buttons)."""
         self.button_frame.grid_columnconfigure(0, weight=1)
         self.button_frame.grid_columnconfigure(1, weight=1)
 
+        # row 0: normalize
         self.chk_normalize = ctk.CTkCheckBox(
             self.button_frame, text="Normalize to 0 dB",
             variable=self.normalize_var, command=self.refresh_current_plot
         )
         self.chk_normalize.grid(row=0, column=0, columnspan=2, padx=100, pady=5, sticky="w")
 
-        # frequency dropdown (per-test)
+        # row 1: frequency dropdown
         self.freq_dropdown = ctk.CTkOptionMenu(
             self.button_frame, variable=self.freq_var, values=[], command=self.on_freq_change
         )
-        self.freq_dropdown.grid(row=3, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
+        self.freq_dropdown.grid(row=1, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
 
-        # test selection dropdown (labels)
+        # row 2: test selector
         self.test_selector = ctk.CTkOptionMenu(
             self.button_frame, values=[], variable=self.selected_test_label, command=self.on_test_selected
         )
-        self.test_selector.grid(row=4, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
+        self.test_selector.grid(row=2, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
 
-        # action buttons
+        # start action buttons at row 3+
         buttons = [
             ("Load CSV", self.load_csv),
             ("Load Last Test", self.load_last_csv),
@@ -144,8 +144,9 @@ class DataAnalysisWindow(ctk.CTkToplevel):
             ("Export PDF", lambda: self.export_plot("pdf")),
             ("Close", self.handle_close),
         ]
+        base_row = 3
         for i, (text, cmd) in enumerate(buttons):
-            self._add_button(self.button_frame, i + 1, text, cmd)
+            self._add_button(self.button_frame, base_row + i, text, cmd)
 
     def _add_button(self, frame, row, text, command):
         """Convenience for a full-width button row."""
