@@ -925,9 +925,9 @@ class PatternWizard(ctk.CTkToplevel):
                         all_freqs.add(f)
 
                     # mid band value for quick plotting
-                    if mags:
-                        mid_idx = len(freqs) // 2
-                        mid_val = mags[mid_idx] if 0 <= mid_idx < len(mags) else mags[-1]
+                    if np.size(mags) > 0:
+                        mid_idx = int(np.size(freqs) // 2)
+                        mid_val = mags[mid_idx] if 0 <= mid_idx < np.size(mags) else mags[-1]
 
                         if mode == "full":
                             self.update_3d_plot(phi, theta, mid_val)
