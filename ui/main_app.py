@@ -52,6 +52,10 @@ class MainApp(ctk.CTk):
         self.title("ANTENNA TEST RANGE CONTROLLER —— MARS")
         self.geometry("1000x700")
         self.resizable(True, True)
+        self.lift()
+        self.attributes("-topmost", True)
+        self.after(200, lambda: self.attributes("-topmost", False))
+        self.after(10, self.focus_force)
 
     def _initialize_layout(self):
         """

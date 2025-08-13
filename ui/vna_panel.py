@@ -38,6 +38,10 @@ class VNAFrontPanel(ctk.CTkToplevel):
         self.title("AGILENT 8722ES — Soft Front Panel")
         self.geometry("1200x800")
         self.resizable(True, True)
+        self.lift()
+        self.attributes("-topmost", True)
+        self.after(200, lambda: self.attributes("-topmost", False))
+        self.after(10, self.focus_force)
 
         # containers
         self.measure_frame = None
@@ -275,7 +279,10 @@ class VNAFrontPanel(ctk.CTkToplevel):
         popup.title(prompt)
         popup.geometry("360x140")
         popup.resizable(False, False)
-
+        popup.lift()
+        popup.attributes("-topmost", True)
+        popup.after(200, lambda: self.attributes("-topmost", False))
+        popup.after(10, self.focus_force)
         label = ctk.CTkLabel(popup, text=prompt, wraplength=320)
         label.pack(pady=(14, 8))
 

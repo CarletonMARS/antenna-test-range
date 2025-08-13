@@ -73,7 +73,10 @@ class ManualControlWindow(ctk.CTkToplevel):
         self.rowconfigure(6, weight=1)
 
         self.lift()
+        self.attributes("-topmost", True)
+        self.after(200, lambda: self.attributes("-topmost", False))
         self.after(10, self.focus_force)
+
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
