@@ -56,6 +56,9 @@ class PatternWizard(ctk.CTkToplevel):
         "IMAG": "Imaginary Part",
     }
 
+    # Allowed VNA points when we ARE modifying the VNA
+    ALLOWED_POINTS = ["201", "401", "801", "1601"]
+
     def __init__(self, parent, vna_ctrl, serial_ctrl,
                  rot_stage: Optional[ArduinoRotationStage] = None):
         """
@@ -116,7 +119,6 @@ class PatternWizard(ctk.CTkToplevel):
         self.phi_step = None
         self.freq_start = None
         self.freq_stop = None
-        our_freq_points = None  # keep for readability in docstrings below
         self.freq_points = None
         self.power_level = None
         self.selected_format = None
@@ -139,6 +141,10 @@ class PatternWizard(ctk.CTkToplevel):
         self.plot_title_var = tk.StringVar(value="Live Pattern")
         self.grid_var = tk.BooleanVar(value=False)
         self.y_axis_limits = None  # (ymin, ymax) or None (applies to 2D only)
+
+        # VNA behavior
+        self.no_vna_var = tk.BooleanVar(value=False)  # "Do not modify VNA"
+        self.no_vna_note_label = None  # note label shown when checkbox is ON
 
         # placeholders created in show_param_form
         self.title_entry = None
@@ -431,20 +437,43 @@ class PatternWizard(ctk.CTkToplevel):
         self.options_frame.grid(row=0, column=1, padx=(8, 0), sticky="n")
 
         self.entries = {}
-        fields = [
+
+        # --- VNA control row (checkbox) ---
+        vna_row = ctk.CTkFrame(self.param_frame)
+        vna_row.pack(pady=(0, 6), fill="x")
+        vna_cb = ctk.CTkCheckBox(
+            vna_row,
+            text='Do not modify VNA',
+            variable=self.no_vna_var,
+            command=self._on_no_vna_toggle
+        )
+        vna_cb.pack(side="left", padx=5)
+
+        # Note (only when checkbox is ON)
+        self.no_vna_note_label = ctk.CTkLabel(
+            self.param_frame,
+            text="(VNA won’t be configured; please still enter fields for informational use)",
+            text_color=("gray60", "gray60")
+        )
+        # Initially hidden if unchecked
+        if self.no_vna_var.get():
+            self.no_vna_note_label.pack(pady=(0, 6), anchor="w", padx=5)
+
+        # scalar entries (build all EXCEPT Freq Points here; that one is dynamic)
+        base_fields = [
             ("Freq Start (GHz)", "freq_start"),
             ("Freq Stop (GHz)", "freq_stop"),
-            ("Freq Points", "freq_step"),
+            # ("Freq Points", "freq_step")  # handled separately
             ("Power (dBm)", "power"),
             ("CSV Name", "csv_path"),
         ]
         if mode in ["full", "phi0", "phi90"]:
-            fields.insert(0, ("Theta Step (°)", "theta_step"))
+            base_fields.insert(0, ("Theta Step (°)", "theta_step"))
         if mode in ["full", "xy"]:
-            fields.insert(0, ("Phi Step (°)", "phi_step"))
+            base_fields.insert(0, ("Phi Step (°)", "phi_step"))
         if mode == "custom":
-            fields.insert(0, ("Fixed Angle (°)", "fixed_angle"))
-            fields.insert(1, ("Step Size", "step_size"))
+            base_fields.insert(0, ("Fixed Angle (°)", "fixed_angle"))
+            base_fields.insert(1, ("Step Size", "step_size"))
 
         # custom slice: choose fixed axis
         if mode == "custom":
@@ -475,14 +504,17 @@ class PatternWizard(ctk.CTkToplevel):
         self.entries["polarization"].set("Vertical (0°)")
         self.entries["polarization"].pack(side="left")
 
-        # scalar entries
-        for label_text, key in fields:
+        # static scalar entries
+        for label_text, key in base_fields:
             row = ctk.CTkFrame(self.param_frame)
             row.pack(pady=3)
             ctk.CTkLabel(row, text=label_text, width=140, anchor="w").pack(side="left", padx=5)
             entry = ctk.CTkEntry(row, width=120)
             entry.pack(side="left")
             self.entries[key] = entry
+
+        # dynamic "Freq Points" control (dropdown if we WILL modify VNA; entry if not)
+        self._build_freq_points_control(parent_frame=self.param_frame)
 
         # ---------------- Right column: plot options ----------------
         # Title
@@ -536,6 +568,57 @@ class PatternWizard(ctk.CTkToplevel):
         self.label.configure(text=f"Selected: {mode.upper()} — enter parameters below")
         self.update_idletasks()
         self.geometry(f"{self.winfo_reqwidth() + 120}x{self.winfo_reqheight() + 120}")
+
+    def _build_freq_points_control(self, parent_frame):
+        """
+        Create (or recreate) the 'Freq Points' control:
+        - Dropdown with ALLOWED_POINTS when we WILL modify VNA.
+        - Free entry when 'Do not modify VNA' is checked.
+        Stores the widget under self.entries['freq_step'].
+        """
+        # Remove prior row, if any
+        if hasattr(self, "_freq_points_row") and self._freq_points_row is not None:
+            try:
+                self._freq_points_row.destroy()
+            except Exception:
+                pass
+
+        self._freq_points_row = ctk.CTkFrame(parent_frame)
+        self._freq_points_row.pack(pady=3)
+        ctk.CTkLabel(self._freq_points_row, text="Freq Points", width=140, anchor="w").pack(side="left", padx=5)
+
+        if self.no_vna_var.get():
+            # Free entry (informational only)
+            widget = ctk.CTkEntry(self._freq_points_row, width=120)
+            widget.insert(0, "401")
+            widget.pack(side="left")
+        else:
+            # Restricted dropdown
+            widget = ctk.CTkOptionMenu(self._freq_points_row, values=self.ALLOWED_POINTS)
+            widget.set(self.ALLOWED_POINTS[1])  # default "401"
+            widget.pack(side="left")
+
+        self.entries["freq_step"] = widget
+
+    def _on_no_vna_toggle(self):
+        """
+        Toggle handler for the 'Do not modify VNA' checkbox.
+        Shows/hides the explanatory note and rebuilds the Freq Points control.
+        """
+        # Show or hide note
+        try:
+            if self.no_vna_var.get():
+                if self.no_vna_note_label and not self.no_vna_note_label.winfo_ismapped():
+                    self.no_vna_note_label.pack(pady=(0, 6), anchor="w", padx=5)
+            else:
+                if self.no_vna_note_label and self.no_vna_note_label.winfo_ismapped():
+                    self.no_vna_note_label.pack_forget()
+        except Exception:
+            pass
+
+        # Rebuild the Freq Points control to match mode
+        if hasattr(self, "param_frame") and self.param_frame.winfo_exists():
+            self._build_freq_points_control(parent_frame=self.param_frame)
 
     def apply_plot_options_now(self):
         """
@@ -965,7 +1048,12 @@ class PatternWizard(ctk.CTkToplevel):
             # freq/power/format/csv
             self.freq_start = float(self.entries["freq_start"].get())
             self.freq_stop = float(self.entries["freq_stop"].get())
+            # freq_points may come from dropdown or entry
             self.freq_points = float(self.entries["freq_step"].get())
+            if not self.no_vna_var.get():
+                # Validate against allowed set when we WILL modify the VNA
+                if str(int(self.freq_points)) not in self.ALLOWED_POINTS:
+                    raise ValueError(f"Freq Points must be one of {', '.join(self.ALLOWED_POINTS)} when VNA is modified.")
             self.power_level = float(self.entries["power"].get())
             if not (-70 <= self.power_level <= 5):
                 raise ValueError("Power must be between -70 and 5 dBm.")
@@ -1013,9 +1101,10 @@ class PatternWizard(ctk.CTkToplevel):
             self.label.configure(text=f"Invalid input: {e}")
             return
 
-        # configure VNA
+        # configure VNA (skip if "Do not modify VNA" is checked)
         try:
-            self.vna_setup()
+            if not self.no_vna_var.get():
+                self.vna_setup()
         except RuntimeError as e:
             self.label.configure(text=str(e))
             return
@@ -1127,12 +1216,37 @@ class PatternWizard(ctk.CTkToplevel):
             pol_plan = [("vertical", 0.0)]
 
         # --- Main polarization loop: one CSV block per polarization -------------
-        for pol_label, pol_angle in pol_plan:
+        for idx, (pol_label, pol_angle) in enumerate(pol_plan):
             if self.abort_flag.is_set():
                 break
 
             # Record human-readable label for CSV and UI
             self._active_polarization_label = pol_label
+
+            # If doing BOTH, clear plots when switching to horizontal (second pass)
+            if self.polarization_mode == "both" and idx == 1:
+                if hasattr(self, "ax2d"):
+                    try:
+                        self.ax2d.cla()
+                        self.ax2d.set_xlabel("Angle (deg)")
+                        self.ax2d.set_ylabel(self.get_y_axis_label())
+                        self.ax2d.set_title(self.plot_title_var.get())
+                        self.ax2d.grid(bool(self.grid_var.get()))
+                        if self.y_axis_limits:
+                            self.ax2d.set_ylim(*self.y_axis_limits)
+                        self._xvals, self._yvals = [], []
+                        self._line2d, = self.ax2d.plot([], [], "o-")
+                        self.canvas.draw()
+                    except Exception:
+                        pass
+                if hasattr(self, "ax"):
+                    try:
+                        self.ax.cla()
+                        self.ax.set_title(self.plot_title_var.get())
+                        self.ax.grid(bool(self.grid_var.get()))
+                        self.canvas.draw()
+                    except Exception:
+                        pass
 
             # Move rotation stage using the same API as Manual Mode (abs deg + wait_estimate)
             self._set_rotation_deg(pol_angle)
@@ -1343,6 +1457,7 @@ class PatternWizard(ctk.CTkToplevel):
                 "title": self.plot_title_var.get(),
                 "grid": bool(self.grid_var.get()),
                 "y_limits": self.y_axis_limits if self.y_axis_limits else None,
+                "do_not_modify_vna": bool(self.no_vna_var.get()),
             },
             "created_local": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "created_utc": datetime.datetime.utcnow().isoformat() + "Z",
