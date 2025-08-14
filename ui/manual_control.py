@@ -45,6 +45,7 @@ class ManualControlWindow(ctk.CTkToplevel):
         )
 
         self.connected = False  # rotation stage connection state (best-effort/soft)
+        self._rot_poll_id = None  # after()-id for status polling
 
         self._setup_window()
         self._add_banner()
@@ -182,6 +183,39 @@ class ManualControlWindow(ctk.CTkToplevel):
         else:
             self.rot_status_chip.configure(text="Disconnected", fg_color="#7b1fa2")  # purple-ish
 
+    # --- NEW: status chip update from BUSY/IDLE (non-breaking, separate from 'connected') ---
+    def _set_rot_status_state(self, state_txt: str):
+        """
+        Update chip to BUSY/IDLE (color-coded).
+        Accepts 'BUSY', 'IDLE', or any other string → falls back to 'Connected'.
+        """
+        st = (state_txt or "").upper()
+        if st == "BUSY":
+            self.rot_status_chip.configure(text="BUSY", fg_color="#f9a825")   # amber
+        elif st == "IDLE":
+            self.rot_status_chip.configure(text="IDLE", fg_color="#2e7d32")   # green
+        else:
+            # fallback to just connected color
+            self._update_rot_status_chip(self._detect_rot_connected())
+
+    # --- NEW: lightweight polling to keep chip fresh while panel is open ---
+    def _poll_rot_status(self):
+        if not self.rot_panel.winfo_ismapped():
+            return  # don't poll while collapsed
+        try:
+            if self._detect_rot_connected():
+                st = self.rot.query_status()
+                if st:
+                    self._set_rot_status_state(st)
+                else:
+                    self._update_rot_status_chip(True)
+            else:
+                self._update_rot_status_chip(False)
+        except Exception:
+            self._update_rot_status_chip(False)
+        # schedule next poll
+        self._rot_poll_id = self.after(600, self._poll_rot_status)
+
     def _set_rotary_collapsed(self, collapsed: bool):
         """
         Show/hide the rotary detail panel and adjust toggle icon.
@@ -189,9 +223,19 @@ class ManualControlWindow(ctk.CTkToplevel):
         if collapsed:
             self.rot_panel.grid_remove()
             self.rot_toggle_btn.configure(text="Rotation Stage ▸")
+            # stop polling when hidden
+            if self._rot_poll_id:
+                try:
+                    self.after_cancel(self._rot_poll_id)
+                except Exception:
+                    pass
+                self._rot_poll_id = None
         else:
             self.rot_panel.grid()  # re-show in the same grid slot
             self.rot_toggle_btn.configure(text="Rotation Stage ▾")
+            # start polling when visible
+            if self._rot_poll_id is None:
+                self._poll_rot_status()
 
     def _toggle_rotary_panel(self):
         """
@@ -284,10 +328,20 @@ class ManualControlWindow(ctk.CTkToplevel):
         try:
             if self.rot is None:
                 raise RuntimeError("Rotation stage not initialized.")
-            reply = self.rot.move_rel_deg(deg)
-            self.rot.wait_estimate(deg)
-            self.update_textbox(f"Rot moved {deg}°" + (f", echo: {reply}" if reply is not None else ""))
-            self._update_rot_status_chip(self._detect_rot_connected())
+
+            reply = self.rot.move_rel_deg(deg)  # firmware echoes relative steps
+            # deterministic wait using BUSY/DONE (fallback to estimate on timeout)
+            ok = self.rot.wait_until_done(timeout=30.0)
+            if not ok:
+                self.rot.wait_estimate(deg)  # last-resort fallback (kept behavior-safe)
+
+            self.update_textbox(
+                f"Rot moved {deg}°" +
+                (f", echo: {reply}" if reply is not None else "") +
+                ("" if ok else " (timed out → fallback wait)")
+            )
+            # update status chip
+            self._set_rot_status_state(self.rot.query_status() or "IDLE")
         except Exception as e:
             self.update_textbox(f"Rot move failed: {e}")
             self._update_rot_status_chip(False)
@@ -301,7 +355,8 @@ class ManualControlWindow(ctk.CTkToplevel):
                 raise RuntimeError("Rotation stage not initialized.")
             r = self.rot.reset_origin()
             self.update_textbox(f"Rot origin set (reply: {r})")
-            self._update_rot_status_chip(self._detect_rot_connected())
+            # reflect persisted zero just by showing current status
+            self._set_rot_status_state(self.rot.query_status() or "IDLE")
         except Exception as e:
             self.update_textbox(f"Rot zero failed: {e}")
             self._update_rot_status_chip(False)
@@ -314,10 +369,15 @@ class ManualControlWindow(ctk.CTkToplevel):
             if self.rot is None:
                 raise RuntimeError("Rotation stage not initialized.")
             target = float(self.rot_goto_entry.get())
+
             self.rot.move_abs_deg(target)
-            self.rot.wait_estimate(target)  # crude estimate
-            self.update_textbox(f"Rot moved to {target}° (abs)")
-            self._update_rot_status_chip(self._detect_rot_connected())
+            # NEW: deterministic wait using DONE/IDLE
+            ok = self.rot.wait_until_done(timeout=60.0)
+            if not ok:
+                self.rot.wait_estimate(target)  # fallback (kept for safety)
+
+            self.update_textbox(f"Rot moved to {target}° (abs)" + ("" if ok else " (timed out → fallback wait)"))
+            self._set_rot_status_state(self.rot.query_status() or "IDLE")
         except ValueError:
             self.update_textbox("Rot GOTO: enter a number.")
         except Exception as e:
@@ -479,6 +539,14 @@ class ManualControlWindow(ctk.CTkToplevel):
         """
         Safely close the rotation stage (if present) and destroy the window.
         """
+        # stop polling cleanly
+        try:
+            if self._rot_poll_id:
+                self.after_cancel(self._rot_poll_id)
+        except Exception:
+            pass
+        self._rot_poll_id = None
+
         try:
             if self.rot is not None:
                 self.rot.close()
