@@ -10,6 +10,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import ui.session
+import sys
+from typing import Optional
+from interfaces.arduino_interface import ArduinoRotationStage, ArduinoStageConfig  # Arduino rotation stage (same as Manual Mode)
+import settings
 
 
 class PatternWizard(ctk.CTkToplevel):
@@ -52,7 +56,8 @@ class PatternWizard(ctk.CTkToplevel):
         "IMAG": "Imaginary Part",
     }
 
-    def __init__(self, parent, vna_ctrl, serial_ctrl):
+    def __init__(self, parent, vna_ctrl, serial_ctrl,
+                 rot_stage: Optional[ArduinoRotationStage] = None):
         """
         Initialize the Pattern Wizard window and default state.
 
@@ -83,6 +88,14 @@ class PatternWizard(ctk.CTkToplevel):
         self.vna = vna_ctrl
         self.serial = serial_ctrl
 
+        # Rotation stage
+        self.rot: Optional[ArduinoRotationStage] = rot_stage or ArduinoRotationStage(
+            ArduinoStageConfig(port=getattr(settings, "ARDUINO_PORT", "COM7"))
+        )
+        self._rotation_connected = bool(self.rot is not None)  # soft flag
+        self._last_rotation_deg = None  # cache optional
+        self._active_polarization_label = None  # populated per polarization pass
+
         # state flags
         self.abort_flag = threading.Event()
         self.pause_flag = threading.Event()
@@ -94,6 +107,9 @@ class PatternWizard(ctk.CTkToplevel):
         self._after_ids = []         # all scheduled after() ids for cleanup
         self._orig_after = super().after
         self.after = self._schedule  # override to track IDs
+
+        # polarization / rotation stage
+        self.polarization_mode = "vertical"  # "vertical" | "horizontal" | "both"
 
         # user inputs
         self.theta_step = None
@@ -126,6 +142,24 @@ class PatternWizard(ctk.CTkToplevel):
         self.protocol("WM_DELETE_WINDOW", self.handle_close)
 
     # ---------- infra / scheduling ----------
+
+    def _set_rotation_deg(self, target_deg: float):
+        """
+        Command the Arduino rotation stage to an absolute angle using the same API
+        as Manual Mode. Best-effort; non-fatal on errors.
+        """
+        if not self.rot:
+            return
+        try:
+            if self._last_rotation_deg is not None and abs(self._last_rotation_deg - target_deg) < 1e-6:
+                return
+            self.rot.move_abs_deg(target_deg)
+            # time estimate wait
+            self.rot.wait_estimate(target_deg)
+            self._last_rotation_deg = target_deg
+        except Exception as e:
+            # Non-fatal: surface the issue but allow scans to proceed
+            self.safe_gui_update(self.label, text=f"Rotation stage error: {e}")
 
     def _schedule(self, delay_ms, callback=None, *args):
         """
@@ -284,6 +318,12 @@ class PatternWizard(ctk.CTkToplevel):
             pass
 
         try:
+            if self.rot is not None:
+                self.rot.close()
+        except Exception:
+            pass
+
+        try:
             self.destroy()
         except Exception:
             pass
@@ -367,6 +407,17 @@ class PatternWizard(ctk.CTkToplevel):
         self.entries["format"] = ctk.CTkOptionMenu(format_row, values=list(self.FORMAT_LABELS.keys()))
         self.entries["format"].set("LOGM")
         self.entries["format"].pack(side="left")
+
+        # polarization selection
+        pol_row = ctk.CTkFrame(self.param_frame)
+        pol_row.pack(pady=3)
+        ctk.CTkLabel(pol_row, text="Polarization", width=140, anchor="w").pack(side="left", padx=5)
+        self.entries["polarization"] = ctk.CTkOptionMenu(
+            pol_row,
+            values=["Vertical (0°)", "Horizontal (90°)", "Both"]
+        )
+        self.entries["polarization"].set("Vertical (0°)")
+        self.entries["polarization"].pack(side="left")
 
         # scalar entries
         for label_text, key in fields:
@@ -650,7 +701,7 @@ class PatternWizard(ctk.CTkToplevel):
         new_values : list[str]
             Frequencies formatted as strings (e.g., '2.450').
 
-        Behavior
+        Behaviour
         --------
         - Preserves the current selection if still present.
         - Otherwise selects the first available value.
@@ -775,6 +826,15 @@ class PatternWizard(ctk.CTkToplevel):
             self.csv_path = os.path.join("csv", filename)
             ui.session.last_test_csv = self.csv_path
 
+            # polarization mode (UI selection)
+            pol_choice = self.entries["polarization"].get()
+            if "Both" in pol_choice:
+                self.polarization_mode = "both"
+            elif "Horizontal" in pol_choice:
+                self.polarization_mode = "horizontal"
+            else:
+                self.polarization_mode = "vertical"
+
         except ValueError as e:
             self.label.configure(text=f"Invalid input: {e}")
             return
@@ -847,15 +907,17 @@ class PatternWizard(ctk.CTkToplevel):
         -----
         UI updates are marshalled to the main thread via `safe_gui_update()`/`after()`.
         """
-        # home to 0,0 as your controller expects
+        # Home to 0,0 as controller expects (before any polarization pass)
         try:
             self.serial.move_to(0, 0)
+            if hasattr(self.serial, "wait_for_idle"):
+                self.serial.wait_for_idle(60)
         except Exception as e:
             self.safe_gui_update(self.label, text=f"Positioner error: {e}")
             self._scan_cleanup()
             return
 
-        # angle ranges
+        # Precompute angle ranges once; they are the same for each polarization pass
         if mode == "full":
             theta_range = np.arange(0, 181, self.theta_step)
             phi_range = np.arange(0, 360, self.phi_step)
@@ -879,122 +941,154 @@ class PatternWizard(ctk.CTkToplevel):
             self.safe_gui_update(self.label, text="Invalid scan mode.")
             return
 
-        # CSV block start
-        try:
-            self.open_csv_block(self.csv_path)
-        except Exception as e:
-            self.safe_gui_update(self.label, text=f"CSV error: {e}")
-            self._scan_cleanup()
-            return
+        # Determine the polarization plan (label, absolute rotation in degrees)
+        if self.polarization_mode == "both":
+            pol_plan = [("vertical", 0.0), ("horizontal", 90.0)]
+        elif self.polarization_mode == "horizontal":
+            pol_plan = [("horizontal", 90.0)]
+        else:
+            pol_plan = [("vertical", 0.0)]
 
-        total_steps = len(theta_range) * len(phi_range)
-        done_steps = 0
-        self.safe_gui_update(self.progress_bar, set=0, pack=True)
-        self.data.clear()
-
-        # track available freqs per-iteration (for 2D dropdown)
-        all_freqs = set()
-
-        for phi in phi_range:
+        # --- Main polarization loop: one CSV block per polarization -------------
+        for pol_label, pol_angle in pol_plan:
             if self.abort_flag.is_set():
                 break
 
-            for theta in theta_range:
+            # Record human-readable label for CSV and UI
+            self._active_polarization_label = pol_label
+
+            # Move rotation stage using the same API as Manual Mode (abs deg + wait_estimate)
+            self._set_rotation_deg(pol_angle)
+            self.safe_gui_update(self.label, text=f"Scanning… ({pol_label})")
+
+            # Start a fresh CSV block for this polarization
+            try:
+                self.open_csv_block(self.csv_path)
+            except Exception as e:
+                self.safe_gui_update(self.label, text=f"CSV error: {e}")
+                self._scan_cleanup()
+                return
+
+            total_steps = len(theta_range) * len(phi_range)
+            done_steps = 0
+            self.safe_gui_update(self.progress_bar, set=0, pack=True)
+            self.data.clear()
+            all_freqs = set()  # track freqs to populate dropdown
+
+            # ---------------- Angle loops ----------------
+            for phi in phi_range:
                 if self.abort_flag.is_set():
                     break
 
-                # pause loop
-                while self.pause_flag.is_set():
+                for theta in theta_range:
                     if self.abort_flag.is_set():
-                        try:
-                            self.serial.move_to(0, 0)
-                        except Exception:
-                            pass
-                        self.safe_gui_update(self.label, text="Scan aborted.")
+                        break
+
+                    # pause loop
+                    while self.pause_flag.is_set():
+                        if self.abort_flag.is_set():
+                            try:
+                                self.serial.move_to(0, 0)
+                            except Exception:
+                                pass
+                            self.safe_gui_update(self.label, text="Scan aborted.")
+                            self.close_csv_block()
+                            self._scan_cleanup()
+                            return
+                        time.sleep(0.1)
+
+                    # move
+                    try:
+                        self.serial.move_to(phi, theta)
+                        self.serial.wait_for_idle(60)
+                    except Exception as e:
+                        self.safe_gui_update(self.label, text=f"Positioner error: {e}")
                         self.close_csv_block()
                         self._scan_cleanup()
                         return
-                    time.sleep(0.1)
 
-                # move
-                try:
-                    self.serial.move_to(phi, theta)  # NOTE: original order (phi, theta)
-                    self.serial.wait_for_idle(60)
-                except Exception as e:
-                    self.safe_gui_update(self.label, text=f"Positioner error: {e}")
-                    self.close_csv_block()
-                    self._scan_cleanup()
-                    return
+                    # measure
+                    try:
+                        freqs, mags = self.vna.read_trace()
+                        # record all points
+                        for f, m in zip(freqs, mags):
+                            row = (phi, theta, f, round(m, 2))
+                            self.data.append(row)
+                            self.append_csv_row(self.csv_path, row)
 
-                # measure
-                try:
-                    freqs, mags = self.vna.read_trace()
-                    # record all points
-                    for f, m in zip(freqs, mags):
-                        row = (phi, theta, f, round(m, 2))
-                        self.data.append(row)
-                        self.append_csv_row(self.csv_path, row)
-
-                        # for 2D frequency selection cache
-                        angle_key = {
-                            "xy": phi,
-                            "phi0": theta,
-                            "phi90": theta,
-                            "custom": theta if self.custom_fixed_axis == "phi" else phi,
-                        }.get(mode, 0)
-                        self.update_live_2d_plot(f, angle_key, m)
-                        all_freqs.add(f)
-
-                    # mid band value for quick plotting
-                    if np.size(mags) > 0:
-                        mid_idx = int(np.size(freqs) // 2)
-                        mid_val = mags[mid_idx] if 0 <= mid_idx < np.size(mags) else mags[-1]
-
-                        if mode == "full":
-                            self.update_3d_plot(phi, theta, mid_val)
-                        else:
-                            sweep_angle = {
+                            # for 2D frequency selection cache
+                            angle_key = {
                                 "xy": phi,
                                 "phi0": theta,
                                 "phi90": theta,
                                 "custom": theta if self.custom_fixed_axis == "phi" else phi,
                             }.get(mode, 0)
-                            self.update_2d_plot(sweep_angle, mid_val)
+                            self.update_live_2d_plot(f, angle_key, m)
+                            all_freqs.add(f)
 
-                except Exception as e:
-                    self.safe_gui_update(self.label, text=f"VNA error: {e}")
-                    self.close_csv_block()
-                    self._scan_cleanup()
-                    return
+                        # mid-band value for quick plotting
+                        if np.size(mags) > 0:
+                            mid_idx = int(np.size(freqs) // 2)
+                            mid_val = mags[mid_idx] if 0 <= mid_idx < np.size(mags) else mags[-1]
 
-                # progress
-                done_steps += 1
-                self.safe_gui_update(self.progress_bar, set=done_steps / total_steps)
+                            if mode == "full":
+                                self.update_3d_plot(phi, theta, mid_val)
+                            else:
+                                sweep_angle = {
+                                    "xy": phi,
+                                    "phi0": theta,
+                                    "phi90": theta,
+                                    "custom": theta if self.custom_fixed_axis == "phi" else phi,
+                                }.get(mode, 0)
+                                self.update_2d_plot(sweep_angle, mid_val)
 
-            # update freq dropdown once per phi row
-            if mode != "full" and all_freqs:
-                sorted_vals = sorted(all_freqs)
-                display_vals = [f"{val:.3f}" for val in sorted_vals]
-                self.after(0, lambda vals=display_vals: self.update_frequency_dropdown(vals))
+                    except Exception as e:
+                        self.safe_gui_update(self.label, text=f"VNA error: {e}")
+                        self.close_csv_block()
+                        self._scan_cleanup()
+                        return
 
-        # flush 3D buffer
-        if mode == "full" and self._plot_buffer:
-            self.safe_gui_update(self.flush_3d_plot_buffer)
+                    # progress
+                    done_steps += 1
+                    self.safe_gui_update(self.progress_bar, set=done_steps / total_steps)
 
-        # finish
+                # update freq dropdown once per phi row
+                if mode != "full" and all_freqs:
+                    sorted_vals = sorted(all_freqs)
+                    display_vals = [f"{val:.3f}" for val in sorted_vals]
+                    self.after(0, lambda vals=display_vals: self.update_frequency_dropdown(vals))
+
+            # flush 3D buffer for this polarization
+            if mode == "full" and self._plot_buffer:
+                self.safe_gui_update(self.flush_3d_plot_buffer)
+
+            # Close CSV block for this polarization
+            self.close_csv_block()
+
+        # finish: try to return to home and restore vertical polarization
         try:
             self.serial.move_to(0, 0)
         except Exception:
             pass
+        try:
+            if hasattr(self.serial, "wait_for_idle"):
+                self.serial.wait_for_idle(60)
+        except Exception:
+            pass
+        try:
+            self._set_rotation_deg(0.0)
+        except Exception:
+            pass
 
         if not self.abort_flag.is_set():
-            self.safe_gui_update(self.label, text="Scan complete. Results saved.")
+            msg = "Scan complete"
+            msg += " (both polarizations)." if self.polarization_mode == "both" else f" ({self.polarization_mode})."
+            self.safe_gui_update(self.label, text=msg + " Results saved.")
             self._play_chime()
         else:
             self.safe_gui_update(self.label, text="Scan aborted.")
 
-        # close block & cleanup
-        self.close_csv_block()
+        # cleanup common UI state
         self._scan_cleanup()
 
     def flush_3d_plot_buffer(self):
@@ -1053,6 +1147,7 @@ class PatternWizard(ctk.CTkToplevel):
         cfg = {
             "name": self.test_label,                # e.g., "Full Spherical Scan"
             "mode": self.selected_mode,             # "full", "xy", "phi0", "phi90", "custom"
+            "polarization": self._active_polarization_label, #record active polarization
             "sweep": {
                 "start_ghz": float(self.freq_start),
                 "stop_ghz": float(self.freq_stop),
@@ -1085,6 +1180,11 @@ class PatternWizard(ctk.CTkToplevel):
                 ident = getattr(self.serial, "ident_string", None)
                 pos_id = self.serial.ident_string() if callable(ident) else str(type(self.serial).__name__)
                 f.write(f"# META: positioner={pos_id}\n")
+            except Exception:
+                pass
+            # polarization META
+            try:
+                f.write(f"# META: polarization={self._active_polarization_label}\n")
             except Exception:
                 pass
 
