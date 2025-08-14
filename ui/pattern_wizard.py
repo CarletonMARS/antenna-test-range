@@ -70,7 +70,7 @@ class PatternWizard(ctk.CTkToplevel):
         super().__init__(parent)
 
         self.title("3D Pattern Wizard")
-        self.geometry("1000x700")
+        self.geometry("1100x750")
         self.resizable(True, True)
         self.lift()
         self.attributes("-topmost", True)
@@ -116,6 +116,7 @@ class PatternWizard(ctk.CTkToplevel):
         self.phi_step = None
         self.freq_start = None
         self.freq_stop = None
+        our_freq_points = None  # keep for readability in docstrings below
         self.freq_points = None
         self.power_level = None
         self.selected_format = None
@@ -134,8 +135,16 @@ class PatternWizard(ctk.CTkToplevel):
         self.freq_data = {}          # {freq: ([angles], [vals])}
         self.selected_freq = None
 
-        # manual Y-axis limits for 2D plots: (ymin, ymax) or None
-        self.y_axis_limits = None
+        # plot options state
+        self.plot_title_var = tk.StringVar(value="Live Pattern")
+        self.grid_var = tk.BooleanVar(value=False)
+        self.y_axis_limits = None  # (ymin, ymax) or None (applies to 2D only)
+
+        # placeholders created in show_param_form
+        self.title_entry = None
+        self.grid_check = None
+        self.y_min_entry = None
+        self.y_max_entry = None
 
         # CSV block tracking
         self._csv_block_open = False
@@ -304,7 +313,7 @@ class PatternWizard(ctk.CTkToplevel):
         self.close_btn.pack(pady=5)
 
         self.update_idletasks()
-        self.geometry(f"{self.winfo_reqwidth() + 100}x{self.winfo_reqheight() + 100}")
+        self.geometry(f"{self.winfo_reqwidth() + 120}x{self.winfo_reqheight() + 120}")
 
     # ---------- lifecycle ----------
 
@@ -401,12 +410,25 @@ class PatternWizard(ctk.CTkToplevel):
         for w in (self.full_scan_btn, self.xy_slice_btn, self.phi0_btn, self.phi90_btn, self.custom_slice_btn, self.close_btn):
             w.pack_forget()
 
-        # clear old param frame if exists
-        if hasattr(self, "param_frame"):
-            self.param_frame.destroy()
+        # clear old frames if exist
+        for name in ("param_frame", "options_frame", "content_frame"):
+            if hasattr(self, name):
+                try:
+                    getattr(self, name).destroy()
+                except Exception:
+                    pass
 
-        self.param_frame = ctk.CTkFrame(self)
-        self.param_frame.pack(pady=10)
+        # Two-column container
+        self.content_frame = ctk.CTkFrame(self)
+        self.content_frame.pack(pady=10, fill="x")
+
+        # Left: parameter form
+        self.param_frame = ctk.CTkFrame(self.content_frame)
+        self.param_frame.grid(row=0, column=0, padx=(0, 8), sticky="n")
+
+        # Right: plot options
+        self.options_frame = ctk.CTkFrame(self.content_frame)
+        self.options_frame.grid(row=0, column=1, padx=(8, 0), sticky="n")
 
         self.entries = {}
         fields = [
@@ -453,21 +475,6 @@ class PatternWizard(ctk.CTkToplevel):
         self.entries["polarization"].set("Vertical (0°)")
         self.entries["polarization"].pack(side="left")
 
-        # Y-axis scale (only for 2D modes)
-        if mode != "full":
-            yscale_row = ctk.CTkFrame(self.param_frame)
-            yscale_row.pack(pady=3)
-            ctk.CTkLabel(yscale_row, text="Y-axis (min, max)", width=140, anchor="w").pack(side="left", padx=5)
-            y_min_entry = ctk.CTkEntry(yscale_row, width=80)
-            y_max_entry = ctk.CTkEntry(yscale_row, width=80)
-            # sensible defaults for dB
-            y_min_entry.insert(0, "-60")
-            y_max_entry.insert(0, "0")
-            y_min_entry.pack(side="left", padx=(0, 6))
-            y_max_entry.pack(side="left")
-            self.entries["y_min"] = y_min_entry
-            self.entries["y_max"] = y_max_entry
-
         # scalar entries
         for label_text, key in fields:
             row = ctk.CTkFrame(self.param_frame)
@@ -476,6 +483,38 @@ class PatternWizard(ctk.CTkToplevel):
             entry = ctk.CTkEntry(row, width=120)
             entry.pack(side="left")
             self.entries[key] = entry
+
+        # ---------------- Right column: plot options ----------------
+        # Title
+        title_row = ctk.CTkFrame(self.options_frame)
+        title_row.pack(pady=(3, 8), fill="x")
+        ctk.CTkLabel(title_row, text="Plot Title", width=120, anchor="w").pack(side="left", padx=5)
+        self.title_entry = ctk.CTkEntry(title_row, width=200)
+        self.title_entry.insert(0, self.plot_title_var.get())
+        self.title_entry.pack(side="left")
+
+        # Gridlines
+        grid_row = ctk.CTkFrame(self.options_frame)
+        grid_row.pack(pady=3, fill="x")
+        self.grid_check = ctk.CTkCheckBox(grid_row, text="Show gridlines", variable=self.grid_var)
+        self.grid_check.pack(side="left", padx=5)
+
+        # Y-axis limits (2D only)
+        if mode != "full":
+            yscale_row = ctk.CTkFrame(self.options_frame)
+            yscale_row.pack(pady=3, fill="x")
+            ctk.CTkLabel(yscale_row, text="Y-axis (min, max)", width=120, anchor="w").pack(side="left", padx=5)
+            self.y_min_entry = ctk.CTkEntry(yscale_row, width=80)
+            self.y_max_entry = ctk.CTkEntry(yscale_row, width=80)
+            self.y_min_entry.insert(0, "-60")
+            self.y_max_entry.insert(0, "0")
+            self.y_min_entry.pack(side="left", padx=(0, 6))
+            self.y_max_entry.pack(side="left")
+
+        # Apply plot options
+        apply_btn = ctk.CTkButton(self.options_frame, text="Apply Plot Options",
+                                  command=self.apply_plot_options_now)
+        apply_btn.pack(pady=(8, 3), fill="x")
 
         # control buttons (no Close here)
         self.start_btn = ctk.CTkButton(self, text="Start Scan", command=lambda m=mode: self.start_scan(m))
@@ -496,7 +535,53 @@ class PatternWizard(ctk.CTkToplevel):
 
         self.label.configure(text=f"Selected: {mode.upper()} — enter parameters below")
         self.update_idletasks()
-        self.geometry(f"{self.winfo_reqwidth() + 100}x{self.winfo_reqheight() + 100}")
+        self.geometry(f"{self.winfo_reqwidth() + 120}x{self.winfo_reqheight() + 120}")
+
+    def apply_plot_options_now(self):
+        """
+        Read title/grid/ylim fields and apply immediately to existing plot.
+        """
+        # Title
+        if self.title_entry is not None:
+            title = self.title_entry.get().strip() or "Live Pattern"
+            self.plot_title_var.set(title)
+
+        # Gridlines
+        grid_on = bool(self.grid_var.get())
+
+        # Y-limits (2D only)
+        if self.y_min_entry is not None and self.y_max_entry is not None:
+            ylims = None
+            y_min_txt = self.y_min_entry.get().strip()
+            y_max_txt = self.y_max_entry.get().strip()
+            try:
+                y0 = float(y_min_txt)
+                y1 = float(y_max_txt)
+                if y0 < y1:
+                    ylims = (y0, y1)
+            except Exception:
+                ylims = None
+            self.y_axis_limits = ylims
+
+        # Apply to 2D
+        if hasattr(self, "ax2d"):
+            try:
+                self.ax2d.set_title(self.plot_title_var.get())
+                self.ax2d.grid(grid_on)
+                if self.y_axis_limits:
+                    self.ax2d.set_ylim(*self.y_axis_limits)
+                self.canvas.draw()
+            except Exception:
+                pass
+
+        # Apply to 3D
+        if hasattr(self, "ax"):
+            try:
+                self.ax.set_title(self.plot_title_var.get())
+                self.ax.grid(grid_on)
+                self.canvas.draw()
+            except Exception:
+                pass
 
     def show_mode_selection(self):
         """
@@ -510,7 +595,7 @@ class PatternWizard(ctk.CTkToplevel):
         - Restores the initial buttons (modes + Close).
         """
         # destroy param and buttons
-        for attr in ("param_frame", "start_btn", "back_btn"):
+        for attr in ("param_frame", "options_frame", "content_frame", "start_btn", "back_btn"):
             if hasattr(self, attr):
                 w = getattr(self, attr)
                 try:
@@ -575,7 +660,7 @@ class PatternWizard(ctk.CTkToplevel):
 
         self.label.configure(text="Select scan type to begin")
         self.update_idletasks()
-        self.geometry(f"{self.winfo_reqwidth() + 100}x{self.winfo_reqheight() + 100}")
+        self.geometry(f"{self.winfo_reqwidth() + 120}x{self.winfo_reqheight() + 120}")
 
     # ---------- plotting ----------
 
@@ -596,9 +681,11 @@ class PatternWizard(ctk.CTkToplevel):
         if hasattr(self, "canvas_widget") and self.canvas_widget and self.canvas_widget.winfo_exists():
             return
 
-        self.fig = plt.figure(figsize=(5, 4))
+        self.fig = plt.figure(figsize=(6, 4.5))
         if mode == "full":
             self.ax = self.fig.add_subplot(111, projection="3d")
+            self.ax.set_title(self.plot_title_var.get())
+            self.ax.grid(bool(self.grid_var.get()))
         else:
             # frequency selection dropdown
             self.freq_dropdown_var = ctk.StringVar()
@@ -611,7 +698,8 @@ class PatternWizard(ctk.CTkToplevel):
             self.ax2d = self.fig.add_subplot(111)
             self.ax2d.set_xlabel("Angle (deg)")
             self.ax2d.set_ylabel(self.get_y_axis_label())
-            self.ax2d.set_title("Live 2D Pattern")
+            self.ax2d.set_title(self.plot_title_var.get())
+            self.ax2d.grid(bool(self.grid_var.get()))
             if self.y_axis_limits:
                 self.ax2d.set_ylim(*self.y_axis_limits)
             self._xvals, self._yvals = [], []
@@ -654,6 +742,8 @@ class PatternWizard(ctk.CTkToplevel):
             self._line2d.set_data(self._xvals, self._yvals)
             self.ax2d.set_xlabel("Angle (deg)")
             self.ax2d.set_ylabel(self.get_y_axis_label())
+            self.ax2d.set_title(self.plot_title_var.get())
+            self.ax2d.grid(bool(self.grid_var.get()))
             # enforce manual limits if provided
             if self.y_axis_limits:
                 self.ax2d.set_ylim(*self.y_axis_limits)
@@ -704,7 +794,8 @@ class PatternWizard(ctk.CTkToplevel):
                 return
             xs, ys, zs = zip(*self._plot_buffer)
             self.ax.scatter(xs, ys, zs, s=10)
-            self.ax.set_title("Live 3D Pattern")
+            self.ax.set_title(self.plot_title_var.get())
+            self.ax.grid(bool(self.grid_var.get()))
             self.canvas.draw()
             self._plot_buffer.clear()
 
@@ -746,7 +837,8 @@ class PatternWizard(ctk.CTkToplevel):
         self.ax2d.plot(x_vals, y_vals, "o-")
         self.ax2d.set_xlabel("Angle (deg)")
         self.ax2d.set_ylabel(self.get_y_axis_label())
-        self.ax2d.set_title(f"{self.get_y_axis_label()} @ {self.selected_freq:.3f} GHz")
+        self.ax2d.set_title(self.plot_title_var.get() or f"{self.get_y_axis_label()} @ {self.selected_freq:.3f} GHz")
+        self.ax2d.grid(bool(self.grid_var.get()))
         if self.y_axis_limits:
             self.ax2d.set_ylim(*self.y_axis_limits)
         self.canvas.draw()
@@ -879,18 +971,26 @@ class PatternWizard(ctk.CTkToplevel):
                 raise ValueError("Power must be between -70 and 5 dBm.")
             self.selected_format = self.entries["format"].get()
 
+            # title/grid
+            if self.title_entry is not None:
+                t = self.title_entry.get().strip()
+                self.plot_title_var.set(t if t else "Live Pattern")
+
             # manual Y-axis limits for 2D plots
             if self.selected_mode != "full":
-                y_min_txt = self.entries.get("y_min").get().strip() if "y_min" in self.entries else ""
-                y_max_txt = self.entries.get("y_max").get().strip() if "y_max" in self.entries else ""
-                try:
-                    y_min = float(y_min_txt)
-                    y_max = float(y_max_txt)
-                except Exception:
-                    raise ValueError("Y-axis limits must be numbers.")
-                if not (y_min < y_max):
-                    raise ValueError("Y-axis min must be less than max.")
-                self.y_axis_limits = (y_min, y_max)
+                ylims = None
+                if self.y_min_entry is not None and self.y_max_entry is not None:
+                    y_min_txt = self.y_min_entry.get().strip()
+                    y_max_txt = self.y_max_entry.get().strip()
+                    try:
+                        y_min = float(y_min_txt)
+                        y_max = float(y_max_txt)
+                    except Exception:
+                        raise ValueError("Y-axis limits must be numbers.")
+                    if not (y_min < y_max):
+                        raise ValueError("Y-axis min must be less than max.")
+                    ylims = (y_min, y_max)
+                self.y_axis_limits = ylims
             else:
                 self.y_axis_limits = None
 
@@ -940,7 +1040,8 @@ class PatternWizard(ctk.CTkToplevel):
                 self.ax2d.cla()
                 self.ax2d.set_xlabel("Angle (deg)")
                 self.ax2d.set_ylabel(self.get_y_axis_label())
-                self.ax2d.set_title("Live 2D Pattern")
+                self.ax2d.set_title(self.plot_title_var.get())
+                self.ax2d.grid(bool(self.grid_var.get()))
                 if self.y_axis_limits:
                     self.ax2d.set_ylim(*self.y_axis_limits)
                 self._xvals = []
@@ -957,7 +1058,7 @@ class PatternWizard(ctk.CTkToplevel):
         self.setup_plot_area(mode)
         self.pause_btn.configure(state="normal", text="Pause")
         self.update_idletasks()
-        self.geometry(f"{self.winfo_reqwidth() + 100}x{self.winfo_reqheight() + 100}")
+        self.geometry(f"{self.winfo_reqwidth() + 120}x{self.winfo_reqheight() + 120}")
 
         # worker thread
         self.scan_thread = threading.Thread(target=self.run_scan, args=(mode,), daemon=True, name="ScanThread")
@@ -1175,7 +1276,8 @@ class PatternWizard(ctk.CTkToplevel):
             return
         xs, ys, zs = zip(*self._plot_buffer)
         self.ax.scatter(xs, ys, zs, s=10)
-        self.ax.set_title("Live 3D Pattern")
+        self.ax.set_title(self.plot_title_var.get())
+        self.ax.grid(bool(self.grid_var.get()))
         self.canvas.draw()
         self._plot_buffer.clear()
 
@@ -1222,7 +1324,7 @@ class PatternWizard(ctk.CTkToplevel):
         cfg = {
             "name": self.test_label,                # e.g., "Full Spherical Scan"
             "mode": self.selected_mode,             # "full", "xy", "phi0", "phi90", "custom"
-            "polarization": self._active_polarization_label, #record active polarization
+            "polarization": self._active_polarization_label,  # record active polarization
             "sweep": {
                 "start_ghz": float(self.freq_start),
                 "stop_ghz": float(self.freq_stop),
@@ -1236,6 +1338,11 @@ class PatternWizard(ctk.CTkToplevel):
                 "custom_axis": self.custom_fixed_axis,
                 "custom_angle_deg": float(self.custom_fixed_angle) if self.custom_fixed_angle is not None else None,
                 "custom_step_deg": float(self.custom_step_size) if self.custom_step_size is not None else None,
+            },
+            "plot_options": {
+                "title": self.plot_title_var.get(),
+                "grid": bool(self.grid_var.get()),
+                "y_limits": self.y_axis_limits if self.y_axis_limits else None,
             },
             "created_local": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "created_utc": datetime.datetime.utcnow().isoformat() + "Z",
