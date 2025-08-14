@@ -134,6 +134,9 @@ class PatternWizard(ctk.CTkToplevel):
         self.freq_data = {}          # {freq: ([angles], [vals])}
         self.selected_freq = None
 
+        # manual Y-axis limits for 2D plots: (ymin, ymax) or None
+        self.y_axis_limits = None
+
         # CSV block tracking
         self._csv_block_open = False
 
@@ -450,6 +453,21 @@ class PatternWizard(ctk.CTkToplevel):
         self.entries["polarization"].set("Vertical (0°)")
         self.entries["polarization"].pack(side="left")
 
+        # Y-axis scale (only for 2D modes)
+        if mode != "full":
+            yscale_row = ctk.CTkFrame(self.param_frame)
+            yscale_row.pack(pady=3)
+            ctk.CTkLabel(yscale_row, text="Y-axis (min, max)", width=140, anchor="w").pack(side="left", padx=5)
+            y_min_entry = ctk.CTkEntry(yscale_row, width=80)
+            y_max_entry = ctk.CTkEntry(yscale_row, width=80)
+            # sensible defaults for dB
+            y_min_entry.insert(0, "-60")
+            y_max_entry.insert(0, "0")
+            y_min_entry.pack(side="left", padx=(0, 6))
+            y_max_entry.pack(side="left")
+            self.entries["y_min"] = y_min_entry
+            self.entries["y_max"] = y_max_entry
+
         # scalar entries
         for label_text, key in fields:
             row = ctk.CTkFrame(self.param_frame)
@@ -584,7 +602,8 @@ class PatternWizard(ctk.CTkToplevel):
         else:
             # frequency selection dropdown
             self.freq_dropdown_var = ctk.StringVar()
-            self.freq_dropdown = ctk.CTkOptionMenu(self, variable=self.freq_dropdown_var, values=[], command=self.on_freq_selected)
+            self.freq_dropdown = ctk.CTkOptionMenu(self, variable=self.freq_dropdown_var, values=[],
+                                                   command=self.on_freq_selected)
             self.freq_dropdown.pack(pady=5)
 
             self.selected_freq = None
@@ -593,6 +612,8 @@ class PatternWizard(ctk.CTkToplevel):
             self.ax2d.set_xlabel("Angle (deg)")
             self.ax2d.set_ylabel(self.get_y_axis_label())
             self.ax2d.set_title("Live 2D Pattern")
+            if self.y_axis_limits:
+                self.ax2d.set_ylim(*self.y_axis_limits)
             self._xvals, self._yvals = [], []
             self._line2d, = self.ax2d.plot([], [], "o-")  # default style
 
@@ -633,8 +654,13 @@ class PatternWizard(ctk.CTkToplevel):
             self._line2d.set_data(self._xvals, self._yvals)
             self.ax2d.set_xlabel("Angle (deg)")
             self.ax2d.set_ylabel(self.get_y_axis_label())
-            self.ax2d.relim()
-            self.ax2d.autoscale_view()
+            # enforce manual limits if provided
+            if self.y_axis_limits:
+                self.ax2d.set_ylim(*self.y_axis_limits)
+            else:
+                # fallback: minimal autoscale if no limits given
+                self.ax2d.relim()
+                self.ax2d.autoscale_view()
             self.canvas.draw()
 
         if self.alive:
@@ -721,6 +747,8 @@ class PatternWizard(ctk.CTkToplevel):
         self.ax2d.set_xlabel("Angle (deg)")
         self.ax2d.set_ylabel(self.get_y_axis_label())
         self.ax2d.set_title(f"{self.get_y_axis_label()} @ {self.selected_freq:.3f} GHz")
+        if self.y_axis_limits:
+            self.ax2d.set_ylim(*self.y_axis_limits)
         self.canvas.draw()
 
     def update_frequency_dropdown(self, new_values):
@@ -851,6 +879,21 @@ class PatternWizard(ctk.CTkToplevel):
                 raise ValueError("Power must be between -70 and 5 dBm.")
             self.selected_format = self.entries["format"].get()
 
+            # manual Y-axis limits for 2D plots
+            if self.selected_mode != "full":
+                y_min_txt = self.entries.get("y_min").get().strip() if "y_min" in self.entries else ""
+                y_max_txt = self.entries.get("y_max").get().strip() if "y_max" in self.entries else ""
+                try:
+                    y_min = float(y_min_txt)
+                    y_max = float(y_max_txt)
+                except Exception:
+                    raise ValueError("Y-axis limits must be numbers.")
+                if not (y_min < y_max):
+                    raise ValueError("Y-axis min must be less than max.")
+                self.y_axis_limits = (y_min, y_max)
+            else:
+                self.y_axis_limits = None
+
             filename = self.entries["csv_path"].get().strip()
             if not filename.endswith(".csv"):
                 filename += ".csv"
@@ -898,6 +941,8 @@ class PatternWizard(ctk.CTkToplevel):
                 self.ax2d.set_xlabel("Angle (deg)")
                 self.ax2d.set_ylabel(self.get_y_axis_label())
                 self.ax2d.set_title("Live 2D Pattern")
+                if self.y_axis_limits:
+                    self.ax2d.set_ylim(*self.y_axis_limits)
                 self._xvals = []
                 self._yvals = []
                 self._line2d, = self.ax2d.plot([], [], "o-")
