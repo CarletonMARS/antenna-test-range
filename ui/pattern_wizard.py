@@ -67,6 +67,10 @@ class PatternWizard(ctk.CTkToplevel):
         self.title("3D Pattern Wizard")
         self.geometry("1000x700")
         self.resizable(True, True)
+        self.lift()
+        self.attributes("-topmost", True)
+        self.after(200, lambda: self.attributes("-topmost", False))
+        self.after(10, self.focus_force)
 
         # Silence any stray Tcl bgerror popups
         try:
