@@ -143,7 +143,7 @@ class PatternWizard(ctk.CTkToplevel):
 
     # ---------- infra / scheduling ----------
 
-    def _set_rotation_deg(self, target_deg: float):
+    def _set_rotation_deg(self, target_deg: float, timeout: float = 60.0):
         """
         Command the Arduino rotation stage to an absolute angle using the same API
         as Manual Mode. Best-effort; non-fatal on errors.
@@ -151,15 +151,46 @@ class PatternWizard(ctk.CTkToplevel):
         if not self.rot:
             return
         try:
+            # skip redundant command if unchanged (within fp noise)
             if self._last_rotation_deg is not None and abs(self._last_rotation_deg - target_deg) < 1e-6:
                 return
+
             self.rot.move_abs_deg(target_deg)
-            # time estimate wait
-            self.rot.wait_estimate(target_deg)
+
+            # Prefer firmware handshake (BUSY/DONE) and fall back to time estimate if needed
+            ok = False
+            try:
+                ok = self.rot.wait_until_done(timeout=timeout)
+            except Exception:
+                ok = False
+
+            if not ok:
+                # Fallback: conservative time wait (kept for robustness)
+                delta = target_deg if self._last_rotation_deg is None else (target_deg - self._last_rotation_deg)
+                self.rot.wait_estimate(delta)
+
             self._last_rotation_deg = target_deg
         except Exception as e:
             # Non-fatal: surface the issue but allow scans to proceed
             self.safe_gui_update(self.label, text=f"Rotation stage error: {e}")
+
+    def _restore_vertical(self):
+        """Best-effort return to 0° (vertical) using deterministic wait, then fallback."""
+        if not self.rot:
+            return
+        try:
+            self.rot.move_abs_deg(0.0)
+            ok = False
+            try:
+                ok = self.rot.wait_until_done(timeout=30.0)
+            except Exception:
+                ok = False
+            if not ok:
+                self.rot.wait_estimate(0.0 if self._last_rotation_deg is None else -self._last_rotation_deg)
+            self._last_rotation_deg = 0.0
+        except Exception:
+            # swallow—end-of-scan cleanup should never hard-fail UI
+            pass
 
     def _schedule(self, delay_ms, callback=None, *args):
         """
@@ -1075,10 +1106,9 @@ class PatternWizard(ctk.CTkToplevel):
                 self.serial.wait_for_idle(60)
         except Exception:
             pass
-        try:
-            self._set_rotation_deg(0.0)
-        except Exception:
-            pass
+
+        # robust vertical restore (even if last pass was horizontal)
+        self._restore_vertical()
 
         if not self.abort_flag.is_set():
             msg = "Scan complete"
