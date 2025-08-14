@@ -21,7 +21,7 @@ class ManualControlWindow(ctk.CTkToplevel):
     - Custom GOTO for (phi, theta)
     - Live position feedback
     - Banner image
-    - Optional Arduino-based rotation stage controls
+    - Optional Arduino-based rotation stage controls (collapsible/compact)
     """
 
     def __init__(self, parent, serial_ctrl: SerialController,
@@ -40,22 +40,27 @@ class ManualControlWindow(ctk.CTkToplevel):
         """
         super().__init__(parent)
         self.ctrl = serial_ctrl
-        # Keep your default port; adjust as needed in your environment.
         self.rot: Optional[ArduinoRotationStage] = rot_stage or ArduinoRotationStage(
             ArduinoStageConfig(port=getattr(settings, "ARDUINO_PORT", "COM7"))
         )
 
-        self.connected = False
+        self.connected = False  # rotation stage connection state (best-effort/soft)
 
         self._setup_window()
         self._add_banner()
-        self._add_rotary_controls()   # Arduino rotation stage controls
-        self._add_phi_controls()
+
+        # --- Compact, collapsible rotation stage UI
+        self._build_rotary_header_and_panel()   # header row + hidden detail panel (row=1)
+
+        self._add_phi_controls()    # rows 2–3
         self._add_theta_controls()
-        self._add_home_controls()
-        self._add_zero_controls()
-        self._add_custom_goto()
-        self._add_textbox()
+        self._add_home_controls()   # row 4
+        self._add_zero_controls()   # rows 4–5
+        self._add_custom_goto()     # row 6
+        self._add_textbox()         # row 5 (wide)
+
+        # start with rotary panel collapsed to be unobtrusive
+        self._set_rotary_collapsed(True)
 
     # ---------------------- INIT HELPERS ----------------------
 
@@ -91,42 +96,116 @@ class ManualControlWindow(ctk.CTkToplevel):
             lbl = ctk.CTkLabel(self, image=self.ctk_image, text="")
             lbl.grid(row=0, column=4, padx=10, pady=10)
         except Exception as e:
-            # If the image is missing, show a small text label instead.
             ctk.CTkLabel(self, text=f"[Banner missing: {e}]").grid(row=0, column=4, padx=10, pady=10)
 
-    def _add_rotary_controls(self):
+    # ---------------------- Compact Rotary UI ----------------------
+
+    def _build_rotary_header_and_panel(self):
         """
-        Add Arduino rotation stage controls (relative jog, absolute GOTO, save zero).
+        Create a slim header bar with a toggle to expand/collapse the rotary controls,
+        plus a hidden details frame with jog/goto/zero controls.
         """
-        self.rot_frame = ctk.CTkFrame(self)
-        self.rot_frame.grid(row=1, column=0, columnspan=9, padx=10, pady=(5, 0), sticky="w")
+        # Header row (very compact)
+        self.rot_header = ctk.CTkFrame(self, fg_color="transparent")
+        self.rot_header.grid(row=1, column=0, columnspan=9, padx=10, pady=(0, 0), sticky="ew")
+        self.rot_header.grid_columnconfigure(0, weight=1)
+        self.rot_header.grid_columnconfigure(1, weight=0)
 
-        ctk.CTkLabel(
-            self.rot_frame, text="Rotation Stage (Arduino)", font=("Helvetica", 14, "bold")
-        ).grid(row=0, column=0, columnspan=8, sticky="w", padx=6, pady=(6, 2))
+        self.rot_toggle_btn = ctk.CTkButton(
+            self.rot_header,
+            text="Rotation Stage ▸",
+            width=140,
+            height=28,
+            command=self._toggle_rotary_panel
+        )
+        self.rot_toggle_btn.grid(row=0, column=0, sticky="w", padx=(0, 8), pady=4)
 
-        btn_specs = [
-            ("Rot -10°", -10),
-            ("Rot -1°",  -1),
-            ("Rot -0.1°", -0.1),
-            ("Rot +0.1°", +0.1),
-            ("Rot +1°",   +1),
-            ("Rot +10°",  +10),
-        ]
-        for i, (txt, deg) in enumerate(btn_specs):
-            ctk.CTkButton(
-                self.rot_frame, text=txt, command=lambda d=deg: self.rot_move_rel(d)
-            ).grid(row=1, column=i, padx=6, pady=6)
+        # tiny status chip on the right
+        self.rot_status_chip = ctk.CTkLabel(
+            self.rot_header,
+            text="Disconnected",
+            font=("Helvetica", 12, "bold"),
+            text_color="white",
+            fg_color="#555555",
+            corner_radius=12,
+            padx=10, pady=4
+        )
+        self.rot_status_chip.grid(row=0, column=1, sticky="e", pady=4)
 
-        # Absolute GOTO and save zero
-        self.rot_goto_entry = ctk.CTkEntry(self.rot_frame, placeholder_text="Rot GOTO (°)", width=120)
-        self.rot_goto_entry.grid(row=1, column=len(btn_specs), padx=6, pady=6)
+        # Details panel (hidden when collapsed)
+        self.rot_panel = ctk.CTkFrame(self, corner_radius=10)
+        self.rot_panel.grid(row=1, column=0, columnspan=9, padx=10, pady=(4, 6), sticky="ew")
+        for c in range(12):
+            self.rot_panel.grid_columnconfigure(c, weight=1)
 
-        ctk.CTkButton(self.rot_frame, text="Rot GOTO", command=self.rot_goto
-                      ).grid(row=1, column=len(btn_specs) + 1, padx=6, pady=6)
+        # Row 0: Title (subtle) + quick small nudges (compact)
+        ctk.CTkLabel(self.rot_panel, text="Rotation Stage (Arduino)", font=("Helvetica", 13, "bold")
+                     ).grid(row=0, column=0, columnspan=4, sticky="w", padx=8, pady=(8, 2))
 
-        ctk.CTkButton(self.rot_frame, text="Rot SAVE 0", command=self.rot_save0
-                      ).grid(row=1, column=len(btn_specs) + 2, padx=6, pady=6)
+        # Row 1: compact jog segmented buttons
+        # We use small CTkButtons arranged tightly instead of a huge row of big buttons
+        jogs = [(-10, "−10°"), (-1, "−1°"), (-0.1, "−0.1°"), (-0.02, "−0.02°"),
+                (0.02, "+0.02°"), (0.1, "+0.1°"), (1, "+1°"), (10, "+10°")]
+        for i, (val, label) in enumerate(jogs):
+            ctk.CTkButton(self.rot_panel, text=label, width=74, height=30,
+                          command=lambda d=val: self.rot_move_rel(d)
+                          ).grid(row=1, column=i, padx=3, pady=6, sticky="ew")
+
+        # Row 2: absolute goto + save zero (compact)
+        self.rot_goto_entry = ctk.CTkEntry(self.rot_panel, placeholder_text="GOTO (°)", width=120)
+        self.rot_goto_entry.grid(row=2, column=0, columnspan=2, padx=6, pady=(2, 10), sticky="w")
+
+        ctk.CTkButton(self.rot_panel, text="Go", width=70, command=self.rot_goto
+                      ).grid(row=2, column=2, padx=4, pady=(2, 10), sticky="w")
+
+        ctk.CTkButton(self.rot_panel, text="Save 0°", width=90, command=self.rot_save0
+                      ).grid(row=2, column=3, padx=4, pady=(2, 10), sticky="w")
+
+        # update the chip based on current state
+        self._update_rot_status_chip(connected=self._detect_rot_connected())
+
+    def _detect_rot_connected(self) -> bool:
+        """
+        Best-effort detection of whether the Arduino stage is usable.
+        """
+        try:
+            return bool(self.rot is not None and getattr(self.rot, "is_open", True))
+        except Exception:
+            return self.rot is not None
+
+    def _update_rot_status_chip(self, connected: bool):
+        """
+        Update the small status chip text and color.
+        """
+        if connected:
+            self.rot_status_chip.configure(text="Connected", fg_color="#2e7d32")  # green
+        else:
+            self.rot_status_chip.configure(text="Disconnected", fg_color="#7b1fa2")  # purple-ish
+
+    def _set_rotary_collapsed(self, collapsed: bool):
+        """
+        Show/hide the rotary detail panel and adjust toggle icon.
+        """
+        if collapsed:
+            self.rot_panel.grid_remove()
+            self.rot_toggle_btn.configure(text="Rotation Stage ▸")
+        else:
+            self.rot_panel.grid()  # re-show in the same grid slot
+            self.rot_toggle_btn.configure(text="Rotation Stage ▾")
+
+    def _toggle_rotary_panel(self):
+        """
+        Toggle between collapsed and expanded panel.
+        """
+        visible = self.rot_panel.winfo_ismapped()
+        self._set_rotary_collapsed(visible)  # if visible -> collapse; else expand
+
+        # when expanding, refresh the status chip
+        if not visible:
+            self._update_rot_status_chip(self._detect_rot_connected())
+
+    # ---------------------- PHI MOVEMENT ----------------------
+    # due to the absolute coordinates of the arm, the applied coordinate system is opposite of the absolute phi
 
     def _add_phi_controls(self):
         """
@@ -139,6 +218,8 @@ class ManualControlWindow(ctk.CTkToplevel):
         for label, cmd, col in zip(labels, commands, cols):
             ctk.CTkButton(self, text=f"Phi {label}", command=cmd).grid(row=2, column=col, padx=10, pady=10)
 
+    # ---------------------- THETA MOVEMENT ----------------------
+
     def _add_theta_controls(self):
         """
         Add theta jog controls (symmetric step sizes to phi).
@@ -149,6 +230,8 @@ class ManualControlWindow(ctk.CTkToplevel):
         cols = [0, 1, 2, 3, 5, 6, 7, 8]
         for label, cmd, col in zip(labels, commands, cols):
             ctk.CTkButton(self, text=f"Theta {label}", command=cmd).grid(row=3, column=col, padx=10, pady=10)
+
+    # ---------------------- HOMING / ZERO / GOTO ----------------------
 
     def _add_home_controls(self):
         """
@@ -197,23 +280,17 @@ class ManualControlWindow(ctk.CTkToplevel):
     def rot_move_rel(self, deg: float):
         """
         Move the Arduino rotation stage by a relative angle.
-
-        Parameters
-        ----------
-        deg : float
-            Relative rotation in degrees (positive CW/CCW depends on stage config).
         """
         try:
             if self.rot is None:
                 raise RuntimeError("Rotation stage not initialized.")
             reply = self.rot.move_rel_deg(deg)
             self.rot.wait_estimate(deg)
-            if reply is not None:
-                self.update_textbox(f"Rot moved {deg}°, echo: {reply}")
-            else:
-                self.update_textbox(f"Rot moved {deg}°")
+            self.update_textbox(f"Rot moved {deg}°" + (f", echo: {reply}" if reply is not None else ""))
+            self._update_rot_status_chip(self._detect_rot_connected())
         except Exception as e:
             self.update_textbox(f"Rot move failed: {e}")
+            self._update_rot_status_chip(False)
 
     def rot_save0(self):
         """
@@ -224,8 +301,10 @@ class ManualControlWindow(ctk.CTkToplevel):
                 raise RuntimeError("Rotation stage not initialized.")
             r = self.rot.reset_origin()
             self.update_textbox(f"Rot origin set (reply: {r})")
+            self._update_rot_status_chip(self._detect_rot_connected())
         except Exception as e:
             self.update_textbox(f"Rot zero failed: {e}")
+            self._update_rot_status_chip(False)
 
     def rot_goto(self):
         """
@@ -238,13 +317,14 @@ class ManualControlWindow(ctk.CTkToplevel):
             self.rot.move_abs_deg(target)
             self.rot.wait_estimate(target)  # crude estimate
             self.update_textbox(f"Rot moved to {target}° (abs)")
+            self._update_rot_status_chip(self._detect_rot_connected())
         except ValueError:
             self.update_textbox("Rot GOTO: enter a number.")
         except Exception as e:
             self.update_textbox(f"Rot goto failed: {e}")
+            self._update_rot_status_chip(False)
 
     # ---------------------- PHI MOVEMENT ----------------------
-    # due to the absolute coordinates of the arm, the applied coordinate system is opposite of the absolute phi
 
     def phiminus10(self):
         """Jog phi by -10° (applied as +10 in controller)."""
@@ -383,17 +463,6 @@ class ManualControlWindow(ctk.CTkToplevel):
     def move_and_refresh(self, dphi: float, dtheta: float, dz: float = 0, da: float = 0):
         """
         Delta move by (dphi, dtheta, dz, da) and refresh the readout.
-
-        Parameters
-        ----------
-        dphi : float
-            Delta for phi (deg). Positive sign is applied directly to the controller.
-        dtheta : float
-            Delta for theta (deg).
-        dz : float, optional
-            Delta for Z axis.
-        da : float, optional
-            Delta for A axis.
         """
         phi0, theta0, z0, a0, *_ = self.ctrl.query_position()
         self.ctrl.move_to(phi0 + dphi, theta0 + dtheta, z0 + dz, a0 + da)
@@ -402,11 +471,6 @@ class ManualControlWindow(ctk.CTkToplevel):
     def update_textbox(self, text: str):
         """
         Replace the textbox contents with a status string.
-
-        Parameters
-        ----------
-        text : str
-            Message to display in the status area.
         """
         self.textbox.delete("1.0", "end")
         self.textbox.insert("end", text)
