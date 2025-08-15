@@ -513,8 +513,12 @@ class PatternWizard(ctk.CTkToplevel):
             entry.pack(side="left")
             self.entries[key] = entry
 
-        # dynamic "Freq Points" control (dropdown if we WILL modify VNA; entry if not)
+        # dynamic "Freq Points" control (dropdown if modify VNA; entry if not)
         self._build_freq_points_control(parent_frame=self.param_frame)
+
+        #apply defaul values
+        self._apply_param_defaults(mode)
+
 
         # ---------------- Right column: plot options ----------------
         # Title
@@ -568,6 +572,38 @@ class PatternWizard(ctk.CTkToplevel):
         self.label.configure(text=f"Selected: {mode.upper()} — enter parameters below")
         self.update_idletasks()
         self.geometry(f"{self.winfo_reqwidth() + 120}x{self.winfo_reqheight() + 120}")
+
+    def _apply_param_defaults(self, mode: str):
+        """
+        Fill sane default values into the form entries after they've been created.
+        Safe to call even if some widgets aren't present for a given mode.
+        """
+        # Base defaults (common to all modes)
+        defaults = {
+            "freq_start": "8",  # GHz
+            "freq_stop": "12",  # GHz
+            "power": "-10",  # dBm
+            "csv_path": f"pattern_{datetime.datetime.now():%Y%m%d_%H%M%S}",
+        }
+
+        # Mode-specific angle defaults
+        if mode in ("full", "xy"):
+            defaults["phi_step"] = "5"
+        if mode in ("full", "phi0", "phi90"):
+            defaults["theta_step"] = "5"
+        if mode == "custom":
+            defaults["fixed_angle"] = "0"
+            defaults["step_size"] = "5"
+
+        # Push defaults into any CTkEntry that exists
+        for key, val in defaults.items():
+            w = self.entries.get(key)
+            try:
+                if isinstance(w, ctk.CTkEntry):
+                    w.delete(0, "end")
+                    w.insert(0, str(val))
+            except Exception:
+                pass
 
     def _build_freq_points_control(self, parent_frame):
         """
