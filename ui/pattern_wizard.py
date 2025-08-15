@@ -1326,7 +1326,7 @@ class PatternWizard(ctk.CTkToplevel):
 
                     # move
                     try:
-                        self.serial.move_to(phi, theta)
+                        self.serial.move_to(-phi, theta)
                         self.serial.wait_for_idle(60)
                     except Exception as e:
                         self.safe_gui_update(self.label, text=f"Positioner error: {e}")

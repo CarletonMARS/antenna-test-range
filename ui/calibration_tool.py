@@ -153,7 +153,7 @@ class CalibrationToolWindow(ctk.CTkToplevel):
         """
         Compute per-frequency offsets using:
           offset_db = interp(corr_db at freq) - measured_mag_db_at_boresight
-        where boresight is taken at (phi=90°, theta=0°) for each available freq_ghz.
+        where boresight is taken at (phi=0°, theta=90°) for each available freq_ghz.
         Prompts for an output filename and writes 'freq_ghz,offset_db'.
         """
         if self.cal_df is None or self.boresight_df is None:
@@ -166,8 +166,8 @@ class CalibrationToolWindow(ctk.CTkToplevel):
 
             for f in freqs:
                 boresight = self.boresight_df[
-                    (np.isclose(self.boresight_df['phi_deg'], 90.0)) &
-                    (np.isclose(self.boresight_df['theta_deg'], 0.0)) &
+                    (np.isclose(self.boresight_df['phi_deg'], 0.0)) &
+                    (np.isclose(self.boresight_df['theta_deg'], 90.0)) &
                     (np.isclose(self.boresight_df['freq_ghz'], f))
                 ]
                 if boresight.empty:
