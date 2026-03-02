@@ -8,6 +8,9 @@ import ui.session
 import os
 import json
 from io import StringIO
+import math
+from scipy.interpolate import Rbf
+from scipy.interpolate import griddata
 
 
 class DataAnalysisWindow(ctk.CTkToplevel):
@@ -165,7 +168,7 @@ class DataAnalysisWindow(ctk.CTkToplevel):
 
     def create_controls(self):
         """
-        Build a tidy, sectioned control panel instead of one tall stack.
+        Build a tidy, sectioned control panel
 
         Layout
         ------
@@ -1004,7 +1007,11 @@ class DataAnalysisWindow(ctk.CTkToplevel):
 
         try:
             theta = np.deg2rad(slice_df['theta_deg'].astype(float).values)
+            print("Theta\n")
+            print(theta)
             phi = np.deg2rad(slice_df['phi_deg'].astype(float).values)
+            print("Phi\n")
+            print(phi)
 
             mag_db = slice_df.get('mag_db_corrected', slice_df['mag_db']).astype(float).values
             if self.normalize_var.get():
@@ -1012,14 +1019,80 @@ class DataAnalysisWindow(ctk.CTkToplevel):
 
             # radial mapping (match PatternWizard)
             r = 10 ** (mag_db / 20.0)
-            x = r * np.sin(phi) * np.cos(theta)
-            y = r * np.sin(phi) * np.sin(theta)
-            z = r * np.cos(phi)
+            #r = mag_db
+            #r = np.linspace(1,1,np.size(mag_db))
+            #x = r * np.sin(phi) * np.cos(theta)
+            #y = r * np.sin(phi) * np.sin(theta)
+            #z = r * np.cos(phi)
+            x = r * [round(np.sin(angle),15) for angle in theta] * [round(np.cos(angle),15) for angle in phi]
+            y = r * [round(np.sin(angle),15) for angle in theta] * [round(np.sin(angle),15) for angle in phi]
+            z = r * [round(np.cos(angle),15) for angle in theta] * np.ones(np.size(phi))
+            x2 = r * np.outer([round(np.sin(angle), 15) for angle in theta], [round(np.cos(angle), 15) for angle in phi])
+            y2 = r * np.outer([round(np.sin(angle), 15) for angle in theta], [round(np.sin(angle), 15) for angle in phi])
+            z2 = r * np.outer([round(np.cos(angle), 15) for angle in theta], np.ones(np.size(phi)))
+
+            print("X\n")
+            print(x)
+            print("Y\n")
+            print(y)
+            print("Z\n")
+            print(z)
+
+
+            print("r\n")
+            print(r)
+            print("\n")
+
+            print(np.cos(math.pi / 2))
+            print("\n")
+            print(round(np.cos(math.pi/2),15))
 
             self.figure.clf()
             ax = self.figure.add_subplot(111, projection='3d')
 
+            # Fit the RBF
+            rbf = Rbf(x, y, z, mag_db)
+            # Create grid
+            xi = np.linspace(min(x), max(x), 3600)
+            yi = np.linspace(min(y), max(y), 3600)
+            print(xi)
+            print(yi)
+            xi, yi = np.meshgrid(xi, yi)
+            print(xi)
+            print(yi)
+            print("zi\n")
+            #zi = rbf(xi, yi)
+            print("zi\n")
+            #print(zi)
+
+            # Interpolate z values on created grid
+            zi = griddata((x, y), z, (xi, yi), method='linear')
+            print("zi\n")
+            print(zi)
+            # Plotting the 3D surface
+            #sc = ax.plot_surface(xi, yi, zi, cmap='viridis')
+
             sc = ax.scatter(x, y, z, c=mag_db, cmap='viridis', marker='o')
+            #sc = ax.plot_trisurf(x, y, z, cmap='viridis', shade=True)
+            #sc = ax.plot_surface(x2, y2, z2, cmap='viridis')
+
+            print(ax.get_xticks())
+            print(ax.get_yticks())
+            print(ax.get_zticks())
+
+            #maxVal = max(max(ax.get_xticks()), max(ax.get_yticks()), max(ax.get_zticks()))
+            maxVal = max(max(np.abs(ax.get_xticks())), max(np.abs(ax.get_yticks())), max(np.abs(ax.get_zticks())))
+            for ticks in [ax.get_xticks(), ax.get_yticks(), ax.get_zticks()]:
+                if maxVal in ticks:
+                    tickLength = len(ticks) + 1
+            ax.set_xticks(np.linspace(-maxVal, maxVal, tickLength))
+            ax.set_yticks(np.linspace(-maxVal, maxVal, tickLength))
+            ax.set_zticks(np.linspace(-maxVal, maxVal, tickLength))
+            print(ax.get_xticks())
+            print(ax.get_yticks())
+            print(ax.get_zticks())
+            ax.set_aspect('equal')
+
             # options: title only (3D grid toggle is inconsistent across backends)
             ax.set_title(self.plot_title_var.get() or f"3D Pattern at {self.freq_var.get()} GHz")
 

@@ -524,9 +524,14 @@ class ManualControlWindow(ctk.CTkToplevel):
         """
         Delta move by (dphi, dtheta, dz, da) and refresh the readout.
         """
+
         phi0, theta0, z0, a0, *_ = self.ctrl.query_position()
         self.ctrl.move_to(phi0 + dphi, theta0 + dtheta, z0 + dz, a0 + da)
         self.refresh()
+
+
+
+
 
     def update_textbox(self, text: str):
         """

@@ -173,14 +173,14 @@ class VNAFrontPanel(ctk.CTkToplevel):
         """
         Add format controls and auto-scale to the 'Display/Format' frame.
         """
-        formats = ["LOGM", "PHAS", "SMIC", "POLA", "LINM", "SWR", "REAL", "IMAG"]
+        formats = ["MAG", "PHA", "SMI", "PLG", "LIN", "SWR", "REL", "IMG"] # ["LOGM", "PHAS", "SMIC", "POLA", "LINM", "SWR", "REAL", "IMAG"]
         # two rows of four for neatness
         for idx, fmt in enumerate(formats):
             r = 1 + (idx // 4)
             c = idx % 4
             self._btn(frame, r, c, fmt, lambda f=fmt: self.vna_ctrl.write(f"{f};"))
         # auto-scale spans full width
-        self._btn(frame, 3, 0, "AUTO SCALE", lambda: self.vna_ctrl.write("AUTO"), colspan=4)
+        self._btn(frame, 3, 0, "AUTO SCALE", lambda: self.vna_ctrl.write("ASC"), colspan=4)
 
     def _create_utility_buttons(self, frame):
         """
@@ -353,11 +353,11 @@ class VNAFrontPanel(ctk.CTkToplevel):
                 except Exception:
                     return None
             out = {
-                "start_ghz": _qnum("STAR?"),
-                "stop_ghz": _qnum("STOP?"),
-                "center_ghz": _qnum("CENT?"),
-                "span_ghz": _qnum("SPAN?"),
-                "power_dbm": _qnum("POWE?"),
+                "start_ghz": _qnum("SRT?")/1e9, # "start_ghz": _qnum("STAR?"),
+                "stop_ghz": _qnum("STP?")/1e9, # "stop_ghz": _qnum("STOP?"),
+                "center_ghz": _qnum("CNTR?")/1e9, # "center_ghz": _qnum("CENT?"),
+                "span_ghz": _qnum("SPAN?")/1e9, # "span_ghz": _qnum("SPAN?"),
+                "power_dbm": _qnum("P1P?"), # "power_dbm": _qnum("POWE?"),
             }
             # keep only non-None
             out = {k: v for k, v in out.items() if v is not None}
@@ -413,7 +413,8 @@ class VNAFrontPanel(ctk.CTkToplevel):
         Read a trace from the VNA and render it in the plot area with a toolbar.
         """
         try:
-            freqs, mags = self.vna_ctrl.read_trace(channel="CHAN1")
+            freqs, mags, phas = self.vna_ctrl.read_trace(channel="CH1",sparam=self._selected_sparam) # self.vna_ctrl.read_trace(channel="CHAN1")
+            self.vna_ctrl.write("CTN")
             self._reset_plot_area()
             fig = self._create_plot_figure(freqs, mags)
             self.canvas = FigureCanvasTkAgg(fig, master=self.plot_frame)
@@ -450,7 +451,7 @@ class VNAFrontPanel(ctk.CTkToplevel):
         Read a fresh trace and save it to CSV as two columns (freq_ghz, mag_db).
         """
         try:
-            freqs, mags = self.vna_ctrl.read_trace(channel="CHAN1")
+            freqs, mags = self.vna_ctrl.read_trace(channel="CH1",sparam=self._selected_sparam) # self.vna_ctrl.read_trace(channel="CHAN1")
             file_path = self._get_export_path()
             if not file_path:
                 return
@@ -525,25 +526,25 @@ class VNAFrontPanel(ctk.CTkToplevel):
         """
         Prompt for start frequency (GHz) and send STAR command. Updates readback.
         """
-        self._popup_entry("Enter START (GHz):", lambda v: self._set_and_refresh("STAR", "start_ghz", float(v)))
+        self._popup_entry("Enter START (GHz):", lambda v: self._set_and_refresh("SRT", "start_ghz", float(v))) # self._popup_entry("Enter START (GHz):", lambda v: self._set_and_refresh("STAR", "start_ghz", float(v)))
 
     def set_stop(self):
         """
         Prompt for stop frequency (GHz) and send STOP command. Updates readback.
         """
-        self._popup_entry("Enter STOP (GHz):", lambda v: self._set_and_refresh("STOP", "stop_ghz", float(v)))
+        self._popup_entry("Enter STOP (GHz):", lambda v: self._set_and_refresh("STP", "stop_ghz", float(v))) # self._popup_entry("Enter STOP (GHz):", lambda v: self._set_and_refresh("STOP", "stop_ghz", float(v)))
 
     def set_centre(self):
         """
         Prompt for center frequency (GHz) and send CENT command. Updates readback.
         """
-        self._popup_entry("Enter CENTRE (GHz):", lambda v: self._set_and_refresh("CENT", "center_ghz", float(v)))
+        self._popup_entry("Enter CENTRE (GHz):", lambda v: self._set_and_refresh("CNTR", "center_ghz", float(v))) # CHANGE
 
     def set_span(self):
         """
         Prompt for frequency span (GHz) and send SPAN command. Updates readback.
         """
-        self._popup_entry("Enter SPAN (GHz):", lambda v: self._set_and_refresh("SPAN", "span_ghz", float(v)))
+        self._popup_entry("Enter SPAN (GHz):", lambda v: self._set_and_refresh("SPAN", "span_ghz", float(v))) # CHANGE
 
     def set_power(self):
         """
@@ -554,7 +555,7 @@ class VNAFrontPanel(ctk.CTkToplevel):
                 power = float(v)
                 if power < -70 or power > 5:
                     raise ValueError("Power must be between -70 and +5 dBm.")
-                self.vna_ctrl.write(f"POWE {power}")
+                self.vna_ctrl.write(f"PWR {power}") # self.vna_ctrl.write(f"POWE {power}")
                 self._set_readback_value("power_dbm", power)
             except Exception as e:
                 self._show_error_popup(f"Invalid power value: {e}")

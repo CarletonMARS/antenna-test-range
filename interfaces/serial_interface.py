@@ -18,7 +18,11 @@ class SerialController:
         """
         Sends a command to save the current position as the new origin (0,0,0,0).
         """
-        self.conn.write("G10 L20 P1 X0 Y0 A0\n".encode('utf-8'))
+        try:
+            self.conn.write("G10 L20 P1 X0 Y0 A0\n".encode('utf-8'))
+        except serial.SerialException as e:
+            print("Serial Port is disconnected.")
+            pass
 
     def query_position(self):
         """
@@ -32,26 +36,30 @@ class SerialController:
         Raises:
             RuntimeError: If the response is malformed or incomplete.
         """
-        self.conn.reset_input_buffer()
-        self.conn.write(b'?')
-        time.sleep(0.1)
-        raw = self.conn.readline().decode('utf-8').strip()
-        if raw.startswith('<') and raw.endswith('>'):
-            raw = raw[1:-1]
+        try:
+            self.conn.reset_input_buffer()
+            self.conn.write(b'?')
+            time.sleep(0.1)
+            raw = self.conn.readline().decode('utf-8').strip()
+            if raw.startswith('<') and raw.endswith('>'):
+                raw = raw[1:-1]
 
-        for field in raw.split('|'):
-            if field.startswith('WPos:') or field.startswith('MPos:'):
-                parts = field.split(':', 1)[1].split(',')
-                if len(parts) < 6:
-                    raise RuntimeError(f"Expected 6 coords, got {len(parts)} in {raw}")
-                try:
-                    # convert first six entries
-                    vals = [float(p) for p in parts[:6]]
-                    return tuple(vals)  # (x,y,z,a,b,c)
-                except ValueError:
-                    raise RuntimeError(f"Non-numeric coords in {raw}")
+            for field in raw.split('|'):
+                if field.startswith('WPos:') or field.startswith('MPos:'):
+                    parts = field.split(':', 1)[1].split(',')
+                    if len(parts) < 6:
+                        raise RuntimeError(f"Expected 6 coords, got {len(parts)} in {raw}")
+                    try:
+                        # convert first six entries
+                        vals = [float(p) for p in parts[:6]]
+                        return tuple(vals)  # (x,y,z,a,b,c)
+                    except ValueError:
+                        raise RuntimeError(f"Non-numeric coords in {raw}")
 
-        raise RuntimeError(f"No position data in response: {raw}")
+            raise RuntimeError(f"No position data in response: {raw}")
+        except serial.SerialException as e:
+            print("Serial Port is disconnected.")
+            pass
 
     def move_to(self, x, y, z=0, a=0 ):
         """
@@ -63,8 +71,12 @@ class SerialController:
             z (float): Target Z position (default 0).
             a (float): Target A position (default 0).
         """
-        cmd = f"G0 X{x} Y{y} Z{z} A{a}\n"
-        self.conn.write(cmd.encode('utf-8'))
+        try:
+            cmd = f"G0 X{x} Y{y} Z{z} A{a}\n"
+            self.conn.write(cmd.encode('utf-8'))
+        except serial.SerialException as e:
+            print("Serial Port is disconnected.")
+            pass
 
     def wait_for_idle(self, timeout=5, poll_interval=0.05):
         """
@@ -80,43 +92,63 @@ class SerialController:
         start = time.time()
 
         while True:
-            # flush any old data
-            self.conn.reset_input_buffer()
+            try:
+                # flush any old data
+                self.conn.reset_input_buffer()
 
-            # ask for status
-            self.conn.write(b'?')
-            time.sleep(poll_interval)
+                # ask for status
+                self.conn.write(b'?')
+                time.sleep(poll_interval)
 
-            raw = self.conn.readline().decode('utf-8').strip()
+                raw = self.conn.readline().decode('utf-8').strip()
 
-            if raw.startswith('<Idle|'):
-                return
-            if time.time() - start > timeout:
-                raise RuntimeError("Timeout waiting for Idle")
+                if raw.startswith('<Idle|'):
+                    return
+                if time.time() - start > timeout:
+                    raise RuntimeError("Timeout waiting for Idle")
+            except serial.SerialException as e:
+                print("Serial Port is disconnected.")
+                pass
 
     def home_x(self):
         """
         Sends a command to home the X-axis.
         """
-        self.conn.write(('$HX\n').encode('utf-8'))
+        try:
+            self.conn.write(('$HX\n').encode('utf-8'))
+        except serial.SerialException as e:
+            print("Serial Port is disconnected.")
+            pass
 
     def home_y(self):
         """
         Sends a command to home the Y-axis.
         """
-        self.conn.write(('$HY\n').encode('utf-8'))
+        try:
+            self.conn.write(('$HY\n').encode('utf-8'))
+        except serial.SerialException as e:
+            print("Serial Port is disconnected.")
+            pass
 
     def home_a(self):
         """
         Sends a command to home the A-axis (mapped to $HZ).
         """
-        self.conn.write(('$HZ\n').encode('utf-8'))  # Assuming homing A is triggered by $HZ
+        try:
+            self.conn.write(('$HZ\n').encode('utf-8'))  # Assuming homing A is triggered by $HZ
+        except serial.SerialException as e:
+            print("Serial Port is disconnected.")
+            pass
 
     def home_xya(self):
         """
         Sends a command to home all axes (X, Y, A).
         """
-        self.conn.write(('$H\n').encode('utf-8'))
+        try:
+            self.conn.write(('$H\n').encode('utf-8'))
+        except serial.SerialException as e:
+            print("Serial Port is disconnected.")
+            pass
 
     def handle_close(self):
         """

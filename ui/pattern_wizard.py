@@ -46,18 +46,27 @@ class PatternWizard(ctk.CTkToplevel):
 
     # central place for VNA format labels
     FORMAT_LABELS = {
-        "LOGM": "Magnitude (dB)",
-        "PHAS": "Phase (deg)",
-        "SMIC": "Smith Chart (complex)",
-        "POLA": "Polar (complex)",
-        "LINM": "Magnitude (linear)",
+        "MAG": "Magnitude (dB)",
+        "PHA": "Phase (deg)",
+        "SMI": "Smith Chart (complex)",
+        "PLG": "Polar (complex)",
+        "LIN": "Magnitude (linear)",
         "SWR": "SWR",
-        "REAL": "Real Part",
-        "IMAG": "Imaginary Part",
+        "REL": "Real Part",
+        "IMG": "Imaginary Part",
+
+        # "LOGM": "Magnitude (dB)",
+        #         "PHAS": "Phase (deg)",
+        #         "SMIC": "Smith Chart (complex)",
+        #         "POLA": "Polar (complex)",
+        #         "LINM": "Magnitude (linear)",
+        #         "SWR": "SWR",
+        #         "REAL": "Real Part",
+        #         "IMAG": "Imaginary Part",
     }
 
     # Allowed VNA points when we ARE modifying the VNA
-    ALLOWED_POINTS = ["201", "401", "801", "1601"]
+    ALLOWED_POINTS = ["51", "101", "201", "401", "801", "1601"]
 
     def __init__(self, parent, vna_ctrl, serial_ctrl,
                  rot_stage: Optional[ArduinoRotationStage] = None):
@@ -145,6 +154,9 @@ class PatternWizard(ctk.CTkToplevel):
         # VNA behavior
         self.no_vna_var = tk.BooleanVar(value=False)  # "Do not modify VNA"
         self.no_vna_note_label = None  # note label shown when checkbox is ON
+
+        # Wait Time
+        self.wait_time_var = tk.BooleanVar(value=False)  # "Do not set manual wait time"
 
         # placeholders created in show_param_form
         self.title_entry = None
@@ -449,6 +461,14 @@ class PatternWizard(ctk.CTkToplevel):
         )
         vna_cb.pack(side="left", padx=5)
 
+        wait_time_check = ctk.CTkCheckBox(
+            vna_row,
+            text='Set Manual Measurement Wait Time',
+            variable=self.wait_time_var,
+            command=self._on_wait_time_toggle
+        )
+        wait_time_check.pack(side="left", padx=5)
+
         # Note (only when checkbox is ON)
         self.no_vna_note_label = ctk.CTkLabel(
             self.param_frame,
@@ -465,7 +485,7 @@ class PatternWizard(ctk.CTkToplevel):
             ("Freq Stop (GHz)", "freq_stop"),
             # ("Freq Points", "freq_step")  # handled separately
             ("Power (dBm)", "power"),
-            ("CSV Name", "csv_path"),
+            ("CSV Name", "csv_path")
         ]
         if mode in ["full", "phi0", "phi90"]:
             base_fields.insert(0, ("Theta Step (°)", "theta_step"))
@@ -490,7 +510,7 @@ class PatternWizard(ctk.CTkToplevel):
         format_row.pack(pady=3)
         ctk.CTkLabel(format_row, text="Measurement Format", width=140, anchor="w").pack(side="left", padx=5)
         self.entries["format"] = ctk.CTkOptionMenu(format_row, values=list(self.FORMAT_LABELS.keys()))
-        self.entries["format"].set("LOGM")
+        self.entries["format"].set("MAG")
         self.entries["format"].pack(side="left")
 
         # polarization selection
@@ -513,10 +533,13 @@ class PatternWizard(ctk.CTkToplevel):
             entry.pack(side="left")
             self.entries[key] = entry
 
+        # check to see if the wait time entry should be present as well
+        self._on_wait_time_toggle()
+
         # dynamic "Freq Points" control (dropdown if modify VNA; entry if not)
         self._build_freq_points_control(parent_frame=self.param_frame)
 
-        #apply defaul values
+        #apply default values
         self._apply_param_defaults(mode)
 
 
@@ -631,7 +654,7 @@ class PatternWizard(ctk.CTkToplevel):
         else:
             # Restricted dropdown
             widget = ctk.CTkOptionMenu(self._freq_points_row, values=self.ALLOWED_POINTS)
-            widget.set(self.ALLOWED_POINTS[1])  # default "401"
+            widget.set(self.ALLOWED_POINTS[0])  # default "51"
             widget.pack(side="left")
 
         self.entries["freq_step"] = widget
@@ -655,6 +678,30 @@ class PatternWizard(ctk.CTkToplevel):
         # Rebuild the Freq Points control to match mode
         if hasattr(self, "param_frame") and self.param_frame.winfo_exists():
             self._build_freq_points_control(parent_frame=self.param_frame)
+
+    def _on_wait_time_toggle(self):
+        """
+        Toggle handler for the 'Wait Time' Checkbox.
+        Shows/hides the wait time input field
+        """
+
+        try:
+            if self.wait_time_var.get():
+                self.wait_time_row = ctk.CTkFrame(self.param_frame)
+                self.wait_time_row.pack(pady=3)
+                ctk.CTkLabel(self.wait_time_row, text="Wait Time (s)", width=140, anchor="w").pack(side="left", padx=5)
+                entry = ctk.CTkEntry(self.wait_time_row, width=120)
+                entry.insert(0,"0")
+                entry.pack(side="left")
+                self.entries["wait_time"] = entry
+            else:
+                if hasattr(self, "wait_time_row") and self.wait_time_row is not None:
+                    try:
+                        self.wait_time_row.destroy()
+                    except:
+                        pass
+        except:
+            pass
 
     def apply_plot_options_now(self):
         """
@@ -748,12 +795,14 @@ class PatternWizard(ctk.CTkToplevel):
                 delattr(self, attr)
 
         # clear plotting data
+        print("Look in show_mode_selection\n")
         for attr in ("_xvals", "_yvals", "_plot_buffer", "_plot_counter", "freq_data", "selected_freq"):
             if hasattr(self, attr):
                 try:
                     delattr(self, attr)
                 except Exception:
                     pass
+        print("Not in show_mode_selection\n")
 
         # progress bar
         if hasattr(self, "progress_bar") and getattr(self, "progress_bar", None):
@@ -899,9 +948,12 @@ class PatternWizard(ctk.CTkToplevel):
         theta_rad = np.radians(theta)
         phi_rad = np.radians(phi)
         # NOTE: preserving your original mapping (phi as "elevation", theta as "azimuth")
-        x = r * np.sin(phi_rad) * np.cos(theta_rad)
-        y = r * np.sin(phi_rad) * np.sin(theta_rad)
-        z = r * np.cos(phi_rad)
+        # x = r * np.sin(phi_rad) * np.cos(theta_rad)
+        # y = r * np.sin(phi_rad) * np.sin(theta_rad)
+        # z = r * np.cos(phi_rad)
+        x = r * np.sin(theta_rad) * np.cos(phi_rad)
+        y = r * np.sin(theta_rad) * np.sin(phi_rad)
+        z = r * np.cos(theta_rad)
 
         self._plot_buffer.append((x, y, z))
         self._plot_counter += 1
@@ -913,6 +965,7 @@ class PatternWizard(ctk.CTkToplevel):
                 return
             xs, ys, zs = zip(*self._plot_buffer)
             self.ax.scatter(xs, ys, zs, s=10)
+
             self.ax.set_title(self.plot_title_var.get())
             self.ax.grid(bool(self.grid_var.get()))
             self.canvas.draw()
@@ -921,7 +974,7 @@ class PatternWizard(ctk.CTkToplevel):
         if self.alive:
             self.after(0, draw)
 
-    def update_live_2d_plot(self, freq, angle, mag):
+    def update_live_2d_plot(self, freq, angle, mag): # This is where the issue arises when a 2D plot is performed before a 3D plot
         """
         Cache an angle/value sample under a specific frequency and refresh if selected.
 
@@ -934,12 +987,14 @@ class PatternWizard(ctk.CTkToplevel):
         mag : float
             Sample value (e.g., dB). Stored unrounded for plotting; CSV handles rounding.
         """
+        print("We are in update_live_2d_plot\n")
         if freq not in self.freq_data:
             self.freq_data[freq] = ([], [])
         self.freq_data[freq][0].append(angle)
         self.freq_data[freq][1].append(mag)
         if self.selected_freq == freq:
             self.update_2d_plot_from_data()
+        print("We have exited update_live_2d_plot\n")
 
     def update_2d_plot_from_data(self):
         """
@@ -1013,6 +1068,7 @@ class PatternWizard(ctk.CTkToplevel):
         freq_str : str
             Selected frequency text; parsed to float and used as key into `freq_data`.
         """
+        print("We are in on_freq_selected\n")
         try:
             freq = float(freq_str)
             if freq in self.freq_data:
@@ -1020,6 +1076,7 @@ class PatternWizard(ctk.CTkToplevel):
                 self.update_2d_plot_from_data()
         except ValueError:
             pass
+        print("We have exited on_freq_selected\n")
 
     # ---------- scanning ----------
 
@@ -1094,6 +1151,11 @@ class PatternWizard(ctk.CTkToplevel):
             if not (-70 <= self.power_level <= 5):
                 raise ValueError("Power must be between -70 and 5 dBm.")
             self.selected_format = self.entries["format"].get()
+
+            if self.wait_time_var.get():
+                self.wait_time = float(self.entries["wait_time"].get())
+            else:
+                self.wait_time = 0.0
 
             # title/grid
             if self.title_entry is not None:
@@ -1336,10 +1398,10 @@ class PatternWizard(ctk.CTkToplevel):
 
                     # measure
                     try:
-                        freqs, mags = self.vna.read_trace()
+                        freqs, mags, phas = self.vna.read_trace(wait_time=self.wait_time)
                         # record all points
-                        for f, m in zip(freqs, mags):
-                            row = (phi, theta, f, round(m, 2))
+                        for f, m, p in zip(freqs, mags, phas):
+                            row = (phi, theta, f, round(m, 2), p)
                             self.data.append(row)
                             self.append_csv_row(self.csv_path, row)
 
@@ -1350,7 +1412,8 @@ class PatternWizard(ctk.CTkToplevel):
                                 "phi90": theta,
                                 "custom": theta if self.custom_fixed_axis == "phi" else phi,
                             }.get(mode, 0)
-                            self.update_live_2d_plot(f, angle_key, m)
+                            if mode != "full":
+                                self.update_live_2d_plot(f, angle_key, m)
                             all_freqs.add(f)
 
                         # mid-band value for quick plotting
@@ -1459,6 +1522,8 @@ class PatternWizard(ctk.CTkToplevel):
         self.safe_gui_update(self.start_btn, state="normal")
         self.safe_gui_update(self.abort_btn, state="disabled")
         self.safe_gui_update(self.pause_btn, state="disabled")
+        self.vna.write("BC1")
+        self.vna.write("CTN")
 
     # ---------- CSV (JSON header blocks) ----------
 
@@ -1575,15 +1640,20 @@ class PatternWizard(ctk.CTkToplevel):
         """
         num_points = int(self.freq_points)
         try:
-            self.vna.write("ABORT 7")
-            self.vna.write("CLEAR 716")
-            self.vna.write("PRES")
+            # self.vna.write("ABORT 7")
+            # self.vna.write("CLEAR 716")
+            # self.vna.write("PRES")
+            self.vna.write("DSP")
+            self.vna.write("BC0")
             self.vna.write("S21")
-            self.vna.write(f"STAR {self.freq_start}GHZ")
-            self.vna.write(f"STOP {self.freq_stop}GHZ")
-            self.vna.write(f"POWE {self.power_level}")
-            self.vna.write(f"POIN {num_points}")
+            self.vna.write(f"SRT {self.freq_start}GHZ")
+            self.vna.write(f"STP {self.freq_stop}GHZ")
+            self.vna.write(f"PWR {self.power_level}")
+            self.vna.write(f"NP{num_points}")
             self.vna.write(f"{self.selected_format};")
-            self.vna.write("CONT")
+            # self.vna.write("TIN") # self.vna.write("CONT")
+            self.vna.write("HCT")
+            time.sleep(5)
+            self.vna.write("HC0")
         except Exception as e:
             raise RuntimeError(f"VNA config error: {e}")

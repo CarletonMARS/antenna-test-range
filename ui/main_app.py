@@ -3,6 +3,7 @@ import os
 from typing import Optional
 
 import customtkinter as ctk
+import serial
 from PIL import Image
 
 import settings
@@ -200,19 +201,42 @@ class MainApp(ctk.CTk):
         """
         Open the manual positioner control window (requires positioner connected).
         """
-        if not self.serial_ctrl:
-            self._set_status("Positioner not connected.")
-            return
-        ManualControlWindow(self, self.serial_ctrl)
+        try:
+            if not self.serial_ctrl:
+                self._set_status("Positioner not connected.")
+                return
+            ManualControlWindow(self, self.serial_ctrl)
+        except serial.SerialException as e:
+            self._set_status("Serial connection error: " + e)
+            try:
+                if self.serial_ctrl:
+                    self.serial_ctrl.handle_close()
+            except Exception:
+                pass
+            self.serial_ctrl = None
+            self.btn_manual_control.configure(state="disabled")
+            self.btn_connect_serial.configure(text="Connect Positioner", state="normal")
 
     def open_pattern_wizard(self):
         """
         Open the Pattern Wizard (requires both VNA and positioner).
         """
-        if not (self.vna_ctrl and self.serial_ctrl):
-            self._set_status("Connect both VNA and Positioner to run tests.")
-            return
-        PatternWizard(self, self.vna_ctrl, self.serial_ctrl)
+        try:
+            if not (self.vna_ctrl and self.serial_ctrl):
+                self._set_status("Connect both VNA and Positioner to run tests.")
+                return
+            PatternWizard(self, self.vna_ctrl, self.serial_ctrl)
+        except serial.SerialException as e:
+            self._set_status("Serial connection error: " + e)
+            try:
+                if self.serial_ctrl:
+                    self.serial_ctrl.handle_close()
+            except Exception:
+                pass
+            self.serial_ctrl = None
+            self.btn_manual_control.configure(state="disabled")
+            self.btn_connect_serial.configure(text="Connect Positioner", state="normal")
+
 
     def open_data_analyzer(self):
         """

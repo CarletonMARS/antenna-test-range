@@ -1,6 +1,7 @@
 import pyvisa
 import time
 import numpy as np
+import math
 
 
 class VNAController:
@@ -68,7 +69,7 @@ class VNAController:
         """
         self.write(sparam)
 
-    def read_trace(self, channel: str = "CHAN1") -> (np.ndarray, np.ndarray):
+    def read_trace(self, channel: str = "CH1", sparam: str = "S21", wait_time: int = 0) -> (np.ndarray, np.ndarray):
         """
         Reads the active trace data from the VNA for the specified channel.
 
@@ -80,17 +81,39 @@ class VNAController:
                 - freqs (np.ndarray): Frequency points in GHz.
                 - mags (np.ndarray): Magnitude values (real part of complex trace).
         """
-        self.write("FORM5")
+        self.write("DSP")
         self.write(f"{channel};")
-        self.write("OUTPFORM;")
-        vals = self.VNA.query_binary_values("", container=list, header_fmt="hp")
+        self.write("HLD")
+        self.write("TRS")
+        self.write("WFS")
+        time.sleep(wait_time)
 
-        f_start = float(self.query("STAR?"))
-        f_stop = float(self.query("STOP?"))
-        num_points = int(float(self.query("POIN?")))
+        # self.write("FORM5")
+        #         self.write(f"{channel};")
+        #         self.write("OUTPFORM;")
+        vals = self.VNA.query("O" + sparam + "C;") # vals = self.VNA.query_binary_values("", container=list, header_fmt="hp")
+        self.VNA.write("*WAI")
+
+        f_start = float(self.query("SRT?;")) # f_start = float(self.query("STAR?"))
+        f_stop = float(self.query("STP?;")) # f_stop = float(self.query("STOP?"))
+        num_points = int(float(self.query("ONP;"))) # num_points = int(float(self.query("POIN?")))
         freqs = np.linspace(f_start, f_stop, num_points)
-        mags = np.array(vals[0::2])
-        return freqs / 1e9, mags
+
+        complex_Vals = np.asarray(vals[7:].split(",")) # mags = np.array(vals[0::2])
+        complex_Vals = complex_Vals.astype(float)
+        mags = np.array([])
+        phas = np.array([])
+        real = np.array([])
+        imag = np.array([])
+
+        for freq in freqs:
+            i = np.where(freqs == freq)[0][0]
+            mags = np.append(mags, 20*math.log10(math.sqrt(pow(complex_Vals[2*i],2) + pow(complex_Vals[2*i+1],2))))
+            phas = np.append(phas, np.rad2deg(math.atan2(complex_Vals[2*i+1],complex_Vals[2*i])))
+            real = np.append(real, complex_Vals[2*i])
+            imag = np.append(imag, complex_Vals[2*i+1])
+
+        return freqs / 1e9, mags, phas
 
     def reset(self):
         """
