@@ -45,8 +45,8 @@ clc; clear; close all;
 % Load Data and Setup Output
 % =========================================================================
 
-input_folder  = "Sample - Raw Measurements";
-output_folder = "Sample - Gain Conversion";
+input_folder  = "Sample Files/Raw";
+output_folder = "Sample Files/Calibrated";
 file_ext      = ".csv";
 
 % Modify this string if you only want to apply the processing to certain
@@ -57,6 +57,9 @@ phi_col    = 1;
 theta_col  = 2;
 freq_col   = 3;
 S21_dB_col = 4;
+
+Vcut_angle_offset = 0; 
+Hcut_angle_offset = 0; 
 
 % =========================================================================
 % Load Horn Antenna Calibration File
@@ -120,11 +123,11 @@ for n = 1:length(files)
     end
 
     if is_H_cut
-        phi = wrapTo180(phi - 90);
+        phi = wrapTo180(phi - Hcut_angle_offset);
     end
 
     if is_V_cut
-        theta = wrapTo180(theta - 90);
+        theta = wrapTo180(theta - Vcut_angle_offset);
     end
 
     % Compute Gain
