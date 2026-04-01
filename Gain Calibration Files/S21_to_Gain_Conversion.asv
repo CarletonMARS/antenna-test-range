@@ -1,0 +1,173 @@
+% =========================================================================
+% Script which converts raw S21 values from a VNA to gain
+%
+% Description:
+%   This script processes raw radiation pattern measurement data exported
+%   from the measurement system and generates calibrated gain datasets.
+%   The processing pipeline includes:
+%
+%     1) Conversion of measured S21 (dB) to calibrated gain (dB) using
+%        standard horn calibration data.
+%     2) Automatic identification of E-plane and H-plane datasets based
+%        on filename keywords, followed by appropriate angular rotations.
+%     3) Wrapping of angular coordinates to the range [-180°, 180°].
+%     4) Sorting of angular data (phi/theta) independently at each
+%        frequency point to ensure consistent ordering.
+%     5) Export of processed data to CSV format with standardized headers.
+%
+% Inputs:
+%   - CSV files containing raw radiation pattern data
+%   - Standard horn calibration file (frequency vs. gain offset)
+%
+% Outputs:
+%   - CSV files containing:
+%         [Phi (deg), Theta (deg), Frequency (GHz),
+%          Calibrated Gain (dB), S21 (dB)]
+%
+% User Configuration:
+%   - Input/output directories
+%   - File filtering string (e.g., contains_str = "Co-Pol", "Cross-Pol")
+%   - Column indices for raw data
+%
+% Notes:
+%   - The script assumes a fixed header length (6 lines) in input files.
+%   - The last row ("End of Test") is automatically removed.
+%   - Linear interpolation is used for calibration offsets.
+%
+% Author: David F. Hardy
+% Date: 2026-APRIL-01
+% =========================================================================
+
+clc; clear; close all;
+
+% =========================================================================
+% Load Data and Setup Output
+% =========================================================================
+
+input_folder  = "Sample - Raw Measurements";
+output_folder = "Sample - Gain Conversion";
+file_ext      = ".csv";
+
+% Modify this string if you only want to apply the processing to certain
+% ... files in the input folder 
+contains_str  = ""; 
+
+phi_col    = 1;
+theta_col  = 2;
+freq_col   = 3;
+S21_dB_col = 4;
+
+% =========================================================================
+% Load Horn Antenna Calibration File
+% =========================================================================
+
+std_horn_data = readmatrix("2025-12-13 - Gain Calibration.csv");
+std_freq      = std_horn_data(:, 1);
+std_offset_dB = std_horn_data(:, 4);  % offset column
+
+% =========================================================================
+% Locate Raw Files
+% =========================================================================
+
+files = dir(fullfile(input_folder, "*" + contains_str + "*" + file_ext));
+
+if isempty(files)
+    error("No files containing '%s' found in %s", contains_str, input_folder);
+end
+
+% =========================================================================
+% Process Each File
+% =========================================================================
+
+for n = 1:length(files)
+
+    raw_file = erase(files(n).name, file_ext);
+    raw_path = fullfile(input_folder, files(n).name);
+
+    fprintf("Processing: %s\n", files(n).name);
+
+    % Load Raw Data
+    raw_data = readmatrix(raw_path, NumHeaderLines=6);
+
+    % Remove last row ("End of Test")
+    raw_data(end,:) = [];
+
+    phi    = raw_data(:, phi_col);
+    theta  = raw_data(:, theta_col);
+    freq   = raw_data(:, freq_col);
+    S21_dB = raw_data(:, S21_dB_col);
+
+    % Apply Angle Corrections
+    is_E_plane = contains(files(n).name, "E-Plane", "IgnoreCase", true);
+    is_H_plane = contains(files(n).name, "H-Plane", "IgnoreCase", true);
+
+    if is_E_plane
+        phi = wrapTo180(phi - 90);
+    end
+
+    if is_H_plane
+        theta = wrapTo180(theta - 90);
+    end
+
+    % Compute Gain
+
+    unique_freq = unique(freq);
+    gain_dB = zeros(size(S21_dB));
+
+    for k = 1:length(unique_freq)
+
+        f = unique_freq(k);
+        idx = (freq == f);
+
+        offset_dB = interp1(std_freq, std_offset_dB, f, ...
+                            'linear', 'extrap');
+
+        gain_dB(idx) = S21_dB(idx) + offset_dB;
+    end
+
+    %% -------- SORT ANGLES PER FREQUENCY --------
+
+    phi_s    = phi;
+    theta_s  = theta;
+    freq_s   = freq;
+    gain_s   = gain_dB;
+    S21_s    = S21_dB;
+
+    for k = 1:length(unique_freq)
+
+        f = unique_freq(k);
+        idx = find(freq == f);
+
+        if is_H_plane
+            [~, sidx] = sort(theta(idx));
+        else
+            [~, sidx] = sort(phi(idx));
+        end
+
+        phi_s(idx)    = phi(idx(sidx));
+        theta_s(idx)  = theta(idx(sidx));
+        freq_s(idx)   = freq(idx(sidx));
+        gain_s(idx)   = gain_dB(idx(sidx));
+        S21_s(idx)    = S21_dB(idx(sidx));
+    end
+
+    %% -------- WRITE CALIBRATED CSV --------
+
+    output_file = raw_file + ".csv";
+    output_path = fullfile(output_folder, output_file);
+
+    headers = {"Phi (deg)", "Theta (deg)", "Freq (GHz)", ...
+               "Gain (dB)", "S21 (dB)"};
+
+    output_data = [phi_s(:), theta_s(:), freq_s(:), ...
+                   gain_s(:), S21_s(:)];
+
+    output_cell = [headers; num2cell(output_data)];
+
+    writecell(output_cell, output_path);
+
+    fprintf("  → Saved to: %s\n", output_path);
+
+end
+
+disp("All Co-Pol files processed successfully.");
