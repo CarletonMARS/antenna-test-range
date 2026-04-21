@@ -45,12 +45,13 @@ clc; clear; close all;
 % Load Data and Setup Output
 % =========================================================================
 
-input_folder  = "Sample Files/Raw";
-output_folder = "Sample Files/Calibrated";
+input_folder  = "Measurement Data/Conical Horn - Phase Center vs Aperture/Raw";
+output_folder = "Measurement Data/Conical Horn - Phase Center vs Aperture/Calibrated";
 file_ext      = ".csv";
 
-% Modify this string if you only want to apply the processing to certain
-% ... files in the input folder 
+% - Modify this string if you only want to apply the processing to certain
+%   files in the input folder 
+% - Leave empty if you want it to process everything in the input folder
 contains_str  = ""; 
 
 phi_col    = 1;

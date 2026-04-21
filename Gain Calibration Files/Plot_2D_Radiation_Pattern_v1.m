@@ -9,14 +9,19 @@ file_ext = ".csv";
 % Set mode:
 % 'all'  -> process all CSV files in folder
 % 'list' -> process only specific files listed below
-mode = "all";  
+mode = "list";  
 
 % THESE SPECIFIC FILES WILL ONLY BE PLOTTED IF mode = "list" 
 % OTHERWISE, THIS IS IGNORED 
-file_names = { "file1", "file2" };  
+file_names = { "2026-03-27 - X-Band Horn - Hcut", "2026-03-27 - X-Band Horn - Vcut" };  
+%file_names = { "2026-03-27 - X-Band Horn - Hcut", "2026-03-27 - X-Band Horn - Vcut" };  
 
 % Desired frequencies to plot for each file
-target_freqs = [2, 5, 10, 15, 18]; 
+target_freqs = [7, 8, 9, 10, 11, 12]; 
+
+% Apply shift to angles 
+Hcut_angle_offset = 0; 
+Vcut_angle_offset = 90; 
 
 % =========================================================================
 % Locate files
@@ -55,6 +60,7 @@ end
 % Plot Radiation Patterns
 % =========================================================================
 import_plot_fonts(); 
+define_polar_plot_colors(); 
 linewidth = 2; 
 
 for k = 1:length(files)
@@ -68,16 +74,16 @@ for k = 1:length(files)
     gain  = data(:,4); 
 
     if contains(files(k).name, "Hcut")
-        angles = phi; 
+        angles = wrapTo180(phi - Hcut_angle_offset); 
         xlabel_str = "\phi (^\circ)"; 
     end
 
     if contains(files(k).name, "Vcut")
-        angles = theta; 
+        angles = wrapTo180(theta - Vcut_angle_offset); 
         xlabel_str = "\theta (^\circ)"; 
     end
     
-    figure(Position=[100, 100, 1200, 600]); 
+    figure(Position=[100, 100, 1500, 600]); 
     global_max = -inf; 
     global_min = inf; 
     
@@ -93,8 +99,13 @@ for k = 1:length(files)
         angle_vect = angles(freq_mask); 
         gain_vect  = gain(freq_mask);
 
+        [angle_vect, sort_idx] = sort(angle_vect);
+        gain_vect = gain_vect(sort_idx);
+
         global_min = min(global_min, min(gain_vect)); 
-        global_max = max(global_max, ,max_
+        global_max = max(global_max, max(gain_vect)); 
+        
+        sgtitle(files(k).name, Interpreter="none", FontWeight="bold", FontSize=20);
 
         % Rectangular Plot 
         subplot(1,2,1); 
@@ -106,13 +117,11 @@ for k = 1:length(files)
         % Polar Plot
         subplot(1,2,2); 
         polarplot(deg2rad(angle_vect), gain_vect, LineWidth=linewidth,...
-             DisplayName=sprintf("%.1f GHz", nearest_freq)); 
-        title(files(k).name, Interpreter="none"); 
-        rlim([-50, 15]); 
+             DisplayName=sprintf("%.1f GHz", nearest_freq));  
+        rlim([global_min, global_max]); 
 
         pax = gca; 
-        pax.ThetaZeroLocation = 'top'; 
-        pax.ThetaDir = 'clockwise'; 
+        pax.ColorOrder = get(groot, 'defaultAxesColorOrder');
         hold on;
     end
 end
@@ -137,6 +146,13 @@ function import_plot_fonts()
     set(groot, 'defaultTextInterpreter', 'tex');
     set(groot, 'defaultAxesTickLabelInterpreter', 'tex');
     set(groot, 'defaultLegendInterpreter', 'tex');
+
+    % Polar axes
+    set(groot, 'defaultPolarAxesFontName', fontName);
+    set(groot, 'defaultPolarAxesFontSize', fontSize);
+    set(groot, 'defaultPolarAxesLineWidth', 1);   
+    set(groot, 'defaultPolarAxesThetaZeroLocation', 'top'); 
+    set(groot, 'defaultPolarAxesThetaDir', 'clockwise');   
     
     % Colours from pyvista.org
     mycolors_hex = [
@@ -173,4 +189,23 @@ function plot_settings(xlabel_str)
     ax.TickLength = [0.02 0.02]; 
 
     legend()
+end
+
+function define_polar_plot_colors()
+% Colours from pyvista.org
+    mycolors_hex = [
+        "#4682b4"; % steelblue
+        "#ff6347"; % tomato
+        "#00c957"; % emeraldgreen
+        "#ffb00f"; % lightcadmiumyellow
+        "#ba55d3"; % mediumpurple
+        "#48d1cc"; % turqoise
+        "#ff69b4"; % hotpink
+    ];
+
+    % Convert to RGB
+    mycolors = zeros(size(mycolors_hex,1), 3);
+    for i = 1:length(mycolors_hex)
+        mycolors(i,:) = hex2rgb(mycolors_hex(i));
+    end
 end

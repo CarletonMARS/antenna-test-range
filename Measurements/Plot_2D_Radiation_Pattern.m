@@ -1,6 +1,6 @@
 clc; clear all; close all;
 
-files_dir = "Sample Files/Calibrated"; 
+files_dir = "Data"; 
 file_ext = ".csv"; 
 
 % =========================================================================
@@ -9,14 +9,19 @@ file_ext = ".csv";
 % Set mode:
 % 'all'  -> process all CSV files in folder
 % 'list' -> process only specific files listed below
-mode = "all";  
+mode = "list";  
 
 % THESE SPECIFIC FILES WILL ONLY BE PLOTTED IF mode = "list" 
 % OTHERWISE, THIS IS IGNORED 
-file_names = { "file1", "file2" };  
+file_names = { "2026-03-27 - X-Band Horn - Hcut", "2026-03-27 - X-Band Horn - Vcut" };  
+file_names = { "Undergrad 2-18 GHz Horn - Hcut", "2026-03-27 - X-Band Horn - Vcut" };  
 
 % Desired frequencies to plot for each file
-target_freqs = [2, 5, 10, 15, 18]; 
+target_freqs = [5, 10, 15, 18]; 
+
+% Apply shift to angles 
+Hcut_angle_offset = 0; 
+Vcut_angle_offset = 90; 
 
 % =========================================================================
 % Locate files
@@ -69,12 +74,12 @@ for k = 1:length(files)
     gain  = data(:,4); 
 
     if contains(files(k).name, "Hcut")
-        angles = phi; 
+        angles = wrapTo180(phi - Hcut_angle_offset); 
         xlabel_str = "\phi (^\circ)"; 
     end
 
     if contains(files(k).name, "Vcut")
-        angles = theta; 
+        angles = wrapTo180(theta - Vcut_angle_offset); 
         xlabel_str = "\theta (^\circ)"; 
     end
     
@@ -94,10 +99,13 @@ for k = 1:length(files)
         angle_vect = angles(freq_mask); 
         gain_vect  = gain(freq_mask);
 
+        [angle_vect, sort_idx] = sort(angle_vect);
+        gain_vect = gain_vect(sort_idx);
+
         global_min = min(global_min, min(gain_vect)); 
         global_max = max(global_max, max(gain_vect)); 
         
-        sgtitle(files(k).name, Interpreter="none", FontWeight="bold");
+        sgtitle(files(k).name, Interpreter="none", FontWeight="bold", FontSize=20);
 
         % Rectangular Plot 
         subplot(1,2,1); 
